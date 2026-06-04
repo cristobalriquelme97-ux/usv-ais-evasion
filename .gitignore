@@ -1,0 +1,25 @@
+# Entorno virtual
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Configuración de VS Code
+.vscode/
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Resultados temporales
+outputs/
+*.log
+
+# Datos pesados
+*.csv
+*.xlsx
+*.mat
+*.bag

@@ -1,0 +1,8 @@
+colorama==0.4.6
+iniconfig==2.3.0
+numpy==2.4.6
+packaging==26.2
+pluggy==1.6.0
+Pygments==2.20.0
+pyserial==3.5
+pytest==9.0.3
