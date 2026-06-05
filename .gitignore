@@ -1,5 +1,8 @@
-# Entorno virtual
+# Entornos virtuales
 .venv/
+venv/
+env/
+tesis/
 
 # Python
 __pycache__/
@@ -7,19 +10,21 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Metadata de paquetes Python
+*.egg-info/
+build/
+dist/
+
 # Configuración de VS Code
 .vscode/
 
-# Archivos de sistema
+# Archivos temporales
+*.log
 .DS_Store
 Thumbs.db
 
-# Resultados temporales
+# Datos pesados o resultados
 outputs/
-*.log
-
-# Datos pesados
 *.csv
 *.xlsx
 *.mat
-*.bag

@@ -1,0 +1,15 @@
+#Esto me sirve para que Python pueda encontrar 
+#mis módulos aunque ejecute desde la raiz del proyecto
+[project]
+name = "usv-ais-evasion"
+version = "0.1.0"
+description = "Algoritmo de evasión para USV usando datos AIS/NMEA"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
