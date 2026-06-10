@@ -1,0 +1,1 @@
+#Este será creado con el fin de leer datos NMEA desde un puerto serial, para luego alimentar el visualizador y el módulo de evasión.

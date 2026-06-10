@@ -357,44 +357,28 @@ def generate_moving_target_scenario(
 
 
 if __name__ == "__main__":
-    """
-    Este bloque se ejecuta solo si corres directamente este archivo.
-
-    Por ejemplo:
-    python src/usv_avoidance/ais_scenario_generator.py
-
-    No se ejecuta si el archivo es importado desde otro script.
-    """
-
-    generate_moving_target_scenario(
-        # Archivo donde se guardarán las sentencias AIS generadas.
-        output_file="data/scenarios/crossing_scenario_nmea.txt",
-
-        # MMSI simulado del blanco.
-        mmsi=725000001,
-
-        # Posición inicial del blanco.
-        # Latitud negativa: hemisferio sur.
-        # Longitud negativa: oeste de Greenwich.
-        lat0=-33.020000,
-        lon0=-71.620000,
-
-        # Velocidad del blanco en nudos.
-        sog_kn=8.5,
-
-        # Curso sobre el fondo.
-        # 45° significa movimiento hacia el noreste.
-        cog_deg=45.0,
-
-        # Rumbo verdadero del blanco.
-        heading_deg=45,
-
-        # Duración total del escenario en segundos.
-        duration_s=120,
-
-        # Intervalo entre sentencias AIS.
-        # En este caso se genera una sentencia cada 5 segundos.
-        step_s=5,
+    from scenario_config import (
+        OUTPUT_FILE,
+        TARGET_MMSI,
+        TARGET_LAT0,
+        TARGET_LON0,
+        TARGET_SOG_KN,
+        TARGET_COG_DEG,
+        TARGET_HEADING_DEG,
+        DURATION_S,
+        STEP_S,
     )
 
-    print("Escenario AIS generado correctamente.")
+    generate_moving_target_scenario(
+        output_file=OUTPUT_FILE,
+        mmsi=TARGET_MMSI,
+        lat0=TARGET_LAT0,
+        lon0=TARGET_LON0,
+        sog_kn=TARGET_SOG_KN,
+        cog_deg=TARGET_COG_DEG,
+        heading_deg=TARGET_HEADING_DEG,
+        duration_s=DURATION_S,
+        step_s=STEP_S,
+    )
+
+    print(f"Escenario AIS generado correctamente en: {OUTPUT_FILE}")
