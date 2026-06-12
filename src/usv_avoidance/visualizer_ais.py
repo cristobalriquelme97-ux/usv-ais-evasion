@@ -1,10 +1,11 @@
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-from ais_type1_generator import generate_moving_target_scenario, move_position
-from ais_adapter import AisNmeaReceiver
+from usv_avoidance.ais_type1_generator import generate_moving_target_scenario, move_position
+from usv_avoidance.ais_adapter import AisNmeaReceiver
+from usv_avoidance.nmea_file_source import NmeaFileSource
 
-from scenario_config import (
+from usv_avoidance.scenario_config import (
     OUTPUT_FILE,
     TARGET_MMSI,
     TARGET_LAT0,
@@ -57,6 +58,11 @@ def read_target_positions_from_nmea(file_path):
     - longitudes del blanco
     - datos decodificados completos
     """
+    source = NmeaFileSource(
+        file_path=file_path,
+        delay_s=0.0,
+    )
+
     receiver = AisNmeaReceiver(strict_checksum=True)
 
     times = []
@@ -64,14 +70,9 @@ def read_target_positions_from_nmea(file_path):
     lons = []
     decoded_messages = []
 
-    with open(file_path, "r", encoding="utf-8") as file:
-        for index, line in enumerate(file):
-            line = line.strip()
+    for index, sentence in enumerate(source.read_sentences()):
 
-            if not line:
-                continue
-
-            decoded = receiver.ingest(line)
+            decoded = receiver.ingest(sentence)
 
             # Si el mensaje es multifragmento, puede retornar None
             # hasta que tenga todos los fragmentos.
@@ -97,7 +98,8 @@ def read_target_positions_from_nmea(file_path):
             lons.append(lon)
 
     return times, lats, lons, decoded_messages
-
+    #Con eso, el visualizador ya no abre directamente el archivo, 
+    #sino que consume una fuente NMEA. Eso se parece más a una recepción real.
 
 def simulate_usv_positions(
     lat0: float,
@@ -143,10 +145,11 @@ def main():
     Función principal del visualizador.
 
     Flujo:
-    1. Genera sentencias AIS simuladas.
-    2. Lee y decodifica el archivo AIS/NMEA.
-    3. Simula la trayectoria del USV propio.
-    4. Muestra ambos movimientos en una animación.
+    1. Genera sentencias AIS simuladas del blanco móvil.
+    2. Usa NmeaFileSource para leerlas secuencialmente.
+    3. Usa AisNmeaReceiver para decodificarlas.
+    4. Simula la trayectoria del USV propio.
+    5. Muestra ambos movimientos en una animación.
     """
 
     generate_ais_file()

@@ -357,7 +357,7 @@ def generate_moving_target_scenario(
 
 
 if __name__ == "__main__":
-    from scenario_config import (
+    from usv_avoidance.scenario_config import (
         OUTPUT_FILE,
         TARGET_MMSI,
         TARGET_LAT0,
