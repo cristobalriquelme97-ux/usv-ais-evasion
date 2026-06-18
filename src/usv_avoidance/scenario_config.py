@@ -26,8 +26,8 @@ TARGET_LON0 = -71.620000
 
 TARGET_SOG_KN = 8.5
 TARGET_COG_DEG = 225.0
-TARGET_HEADING_DEG = 45
-
+#TARGET_HEADING_DEG = 45
+TARGET_HEADING_DEG = TARGET_COG_DEG # Para simplificar, el blanco siempre apunta hacia su rumbo.
 
 # ============================================================
 # CONFIGURACIÓN DEL USV PROPIO
@@ -38,7 +38,7 @@ USV_LON0 = -71.625000
 
 USV_SOG_KN = 6.0
 USV_COG_DEG = 45.0
-USV_HEADING_DEG = 20
+USV_HEADING_DEG = 45.0
 
 
 # ============================================================

@@ -20,6 +20,7 @@ Procesar sentencias AIS/NMEA, extraer variables cinemáticas de blancos móviles
 # CÁLCULOS CINEMÁTICOS
 # ============================================================
 - `cpa_tcpa.py`: cálculo de CPA y TCPA.
+- `encounter_geometry.py`: cálculo de demarcacion verdadera, relativa y sector del blanco.
 # ============================================================
 # MÓDULO EVASIÓN 
 # ============================================================
