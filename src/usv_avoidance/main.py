@@ -2,6 +2,7 @@ from usv_avoidance.nmea_file_source import NmeaFileSource
 from usv_avoidance.ais_adapter import AisNmeaReceiver
 from usv_avoidance.cpa_tcpa import calculate_cpa_tcpa
 from usv_avoidance.encounter_geometry import calculate_bearing_info
+from usv_avoidance.motion_model import advance_vessel_state
 
 from usv_avoidance.scenario_config import (
     OUTPUT_FILE,
@@ -10,6 +11,7 @@ from usv_avoidance.scenario_config import (
     USV_SOG_KN,
     USV_COG_DEG,
     USV_HEADING_DEG,
+    STEP_S,
 )
 
 
@@ -27,6 +29,7 @@ def main():
         "sog_kn": USV_SOG_KN,
         "cog_deg": USV_COG_DEG,
         "heading_deg": USV_HEADING_DEG,
+        "timestamp": 0.0,
     }
 
     for sentence in source.read_sentences():
@@ -64,6 +67,17 @@ def main():
         )
         
         print("=" * 70)
+
+        print(
+            f"USV | "
+            f"t={ownship['timestamp']:.1f} s | "
+            f"Lat={ownship['lat']:.6f} | "
+            f"Lon={ownship['lon']:.6f} | "
+            f"SOG={ownship['sog_kn']} kn | "
+            f"COG={ownship['cog_deg']}° | "
+            f"HDG={ownship['heading_deg']}°"
+        )
+
         print(
             f"MMSI={target['mmsi']} | "
             f"Lat={target['lat']:.6f} | "
@@ -85,6 +99,10 @@ def main():
             f"Sector: {bearing_info['side']}"
         )
 
+        ownship = advance_vessel_state(
+            vessel=ownship,
+            dt_s=STEP_S,
+        )
 
 if __name__ == "__main__":
     main()

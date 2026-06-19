@@ -20,10 +20,8 @@ OUTPUT_FILE = PROJECT_ROOT / "data" / "scenarios" / "crossing_scenario_nmea.txt"
 # ============================================================
 
 TARGET_MMSI = 725000001
-
 TARGET_LAT0 = -33.020000
 TARGET_LON0 = -71.620000
-
 TARGET_SOG_KN = 8.5
 TARGET_COG_DEG = 225.0
 #TARGET_HEADING_DEG = 45
@@ -35,7 +33,6 @@ TARGET_HEADING_DEG = TARGET_COG_DEG # Para simplificar, el blanco siempre apunta
 
 USV_LAT0 = -33.025000
 USV_LON0 = -71.625000
-
 USV_SOG_KN = 6.0
 USV_COG_DEG = 45.0
 USV_HEADING_DEG = 45.0
