@@ -1,7 +1,8 @@
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-from usv_avoidance.ais_type1_generator import generate_moving_target_scenario, move_position
+from usv_avoidance.ais_type1_generator import generate_moving_target_scenario
+from usv_avoidance.motion_model import advance_position
 from usv_avoidance.ais_adapter import AisNmeaReceiver
 from usv_avoidance.nmea_file_source import NmeaFileSource
 
@@ -129,12 +130,12 @@ def simulate_usv_positions(
         lats.append(lat)
         lons.append(lon)
 
-        lat, lon = move_position(
+        lat, lon = advance_position(
             lat=lat,
             lon=lon,
             sog_kn=sog_kn,
             cog_deg=cog_deg,
-            delta_t_s=step_s,
+            dt_s=step_s,
         )
 
     return times, lats, lons

@@ -161,19 +161,26 @@ def calculate_bearing_info(
 
 if __name__ == "__main__":
     ownship_state = {
-        "lat": -33.025000,
-        "lon": -71.625000,
+        #"lat": -33.025000,
+        #"lon": -71.625000,
+        "lat": -33.021,
+        "lon": -71.62,
         "sog_kn": 6.0,
-        "cog_deg": 45.0,
-        "heading_deg": 45.0,
+        #"cog_deg": 45.0,
+        "cog_deg": 225.0,
+        #"heading_deg": 45.0,
+        "heading_deg": 225.0,
     }
 
     target_state = {
         "mmsi": 725000001,
-        "lat": -33.023336666666665,
-        "lon": -71.62398,
+        #"lat": -33.023336666666665,
+        #"lon": -71.62398,
+        "lat": -33.025000,
+        "lon": -71.625000,
         "sog_kn": 8.5,
-        "cog_deg": 225.0,
+        #"cog_deg": 225.0,
+        "cog_deg": 45.0,
     }
 
     result = calculate_bearing_info(

@@ -2,6 +2,7 @@ from usv_avoidance.nmea_file_source import NmeaFileSource
 from usv_avoidance.ais_adapter import AisNmeaReceiver
 from usv_avoidance.cpa_tcpa import calculate_cpa_tcpa
 from usv_avoidance.encounter_geometry import calculate_bearing_info
+from usv_avoidance.encounter_classifier import classify_encounter
 from usv_avoidance.motion_model import advance_vessel_state
 
 from usv_avoidance.scenario_config import (
@@ -52,6 +53,7 @@ def main():
             "lon": ais_data.get("lon"),
             "sog_kn": ais_data.get("sog_kn"),
             "cog_deg": ais_data.get("cog_deg"),
+            "heading_deg": ais_data.get("heading_deg"),
         }
 
         cpa_result = calculate_cpa_tcpa(
@@ -66,6 +68,13 @@ def main():
         target=target,
         )
         
+        classification = classify_encounter(
+            ownship=ownship,
+            target=target,
+            cpa_result=cpa_result,
+            bearing_info=bearing_info,
+        )
+
         print("=" * 70)
 
         print(
@@ -95,10 +104,17 @@ def main():
 
         print(
             f"Demarcación verdadera: {bearing_info['true_bearing_deg']:.2f}° | "
-            f"Demarcación relativa: {bearing_info['relative_bearing_360_deg']:.2f}° | "
+            f"Demarcación relativa: {bearing_info['relative_bearing_deg']:.2f}° | "
             f"Sector: {bearing_info['side']}"
         )
 
+        print(
+            f"Encuentro: {classification['encounter_name']} | "
+            f"Rol USV: {classification['ownship_role']} | "
+            f"Debe maniobrar: {classification['should_maneuver']} | "
+            f"Motivo: {classification['reason']}"
+        )
+        
         ownship = advance_vessel_state(
             vessel=ownship,
             dt_s=STEP_S,
