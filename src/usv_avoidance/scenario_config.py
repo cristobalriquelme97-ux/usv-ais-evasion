@@ -16,7 +16,7 @@ SCENARIOS_DIR = PROJECT_ROOT / "data" / "scenarios"
 OUTPUT_FILE = SCENARIOS_DIR / "crossing_starboard_risk_nmea.txt"
 
 # Parámetros de simulación
-DELAY_S = 0.2
+DELAY_S = 0.5
 
 # ============================================================
 # CONFIGURACIÓN DEL BLANCO AIS

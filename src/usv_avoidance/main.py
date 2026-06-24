@@ -7,6 +7,7 @@ from usv_avoidance.cpa_tcpa import calculate_cpa_tcpa
 from usv_avoidance.encounter_geometry import calculate_bearing_info
 from usv_avoidance.encounter_classifier import classify_encounter
 from usv_avoidance.motion_model import advance_vessel_state
+from usv_avoidance.target_tracker import TargetTracker
 
 from usv_avoidance.scenario_config import (
     OUTPUT_FILE,
@@ -18,6 +19,12 @@ from usv_avoidance.scenario_config import (
     STEP_S,
     DELAY_S,
 )
+
+from usv_avoidance.state_machine import (
+    NavigationStateMachine,
+    select_most_critical_assessment,
+)
+
 
 SCENARIOS_DIR = Path(OUTPUT_FILE).parent
 
@@ -31,7 +38,7 @@ def parse_args():
 
         python -m usv_avoidance.main --list-scenarios
 
-        python -m usv_avoidance.main --scenario crossing_starboard_risk_nmea.txt
+        python -m usv_avoidance.main --scenario crossing_starboard_risk_nmea.txt, por ejemplo, para ejecutar un escenario específico.
     """
 
     parser = argparse.ArgumentParser(
@@ -249,6 +256,8 @@ def main():
     )
 
     receiver = AisNmeaReceiver(strict_checksum=True)
+    tracker = TargetTracker(max_age_s=60.0) # Si un blanco no se actualiza en 60 segundos, se considera "stale" y se elimina.
+    state_machine = NavigationStateMachine() # Se encarga de evaluar la situación de navegación y decidir si el USV debe maniobrar.
 
     ownship = {
         "lat": USV_LAT0,
@@ -276,98 +285,132 @@ def main():
             print("Mensaje AIS sin posición válida")
             continue
 
-        target = {
-            "mmsi": ais_data.get("mmsi"),
-            "lat": ais_data.get("lat"),
-            "lon": ais_data.get("lon"),
-            "sog_kn": ais_data.get("sog_kn"),
-            "cog_deg": ais_data.get("cog_deg"),
-            "heading_deg": ais_data.get("heading_deg"),
-        }
+        updated_target = tracker.update_from_ais(
+            ais_data=ais_data,
+            received_at_s=ownship["timestamp"],
+        )
 
-        cpa_result = calculate_cpa_tcpa(
-            ownship=ownship,
-            target=target,
-            safety_radius_m=50.0,
-            time_horizon_s=300.0,
+        if updated_target is None:
+            print("Mensaje AIS válido, pero sin datos cinemáticos suficientes.")
+            continue
+
+        active_targets = tracker.get_active_targets(
+            current_time_s=ownship["timestamp"],
+        )
+
+        tracker.remove_stale_targets(
+            current_time_s=ownship["timestamp"],
         )
         
-        bearing_info = calculate_bearing_info(
-        ownship=ownship,
-        target=target,
-        )
+        assessments = []
+
+        for target in active_targets:
+            cpa_result = calculate_cpa_tcpa(
+                ownship=ownship,
+                target=target,
+                safety_radius_m=50.0,
+                time_horizon_s=300.0,
+            )
         
-        classification = classify_encounter(
-            ownship=ownship,
-            target=target,
-            cpa_result=cpa_result,
-            bearing_info=bearing_info,
-        )
+            bearing_info = calculate_bearing_info(
+                ownship=ownship,
+                target=target,
+            )
+        
+            classification = classify_encounter(
+                ownship=ownship,
+                target=target,
+                cpa_result=cpa_result,
+                bearing_info=bearing_info,
+            )
 
-        usv_history.append(
-            {
-            "lat": ownship["lat"],
-            "lon": ownship["lon"],
-            "sog_kn": ownship["sog_kn"],
-            "cog_deg": ownship["cog_deg"],
-            "heading_deg": ownship["heading_deg"],
-            "timestamp": ownship["timestamp"],
+            assessment = {
+                "target": target,
+                "cpa_result": cpa_result,
+                "bearing_info": bearing_info,
+                "classification": classification,
             }
+
+            assessments.append(assessment)
+
+            usv_history.append(
+                {
+                    "lat": ownship["lat"],
+                    "lon": ownship["lon"],
+                    "sog_kn": ownship["sog_kn"],
+                    "cog_deg": ownship["cog_deg"],
+                    "heading_deg": ownship["heading_deg"],
+                    "timestamp": ownship["timestamp"],
+                }
+            )
+
+            target_history.append(
+                {
+                    "mmsi": target["mmsi"],
+                    "lat": target["lat"],
+                    "lon": target["lon"],
+                    "sog_kn": target["sog_kn"],
+                    "cog_deg": target["cog_deg"],
+                    "heading_deg": target["heading_deg"],
+                    "cpa_m": cpa_result["cpa_m"],
+                    "tcpa_s": cpa_result["tcpa_s"],
+                    "risk": cpa_result["risk"],
+                    "encounter_name": classification["encounter_name"],
+                }
+            )
+
+            print("=" * 70)
+
+            print(
+                f"USV | "
+                f"t={ownship['timestamp']:.1f} s | "
+                f"Lat={ownship['lat']:.6f} | "
+                f"Lon={ownship['lon']:.6f} | "
+                f"SOG={ownship['sog_kn']} kn | "
+                f"COG={ownship['cog_deg']}° | "
+                f"HDG={ownship['heading_deg']}°"
+            )
+
+            print(
+                f"MMSI={target['mmsi']} | "
+                f"Lat={target['lat']:.6f} | "
+                f"Lon={target['lon']:.6f} | "
+                f"SOG={target['sog_kn']} kn | "
+                f"COG={target['cog_deg']}°"
+            )
+
+            print(
+                f"Distancia actual: {cpa_result['distance_m']:.2f} m | "
+                f"CPA: {cpa_result['cpa_m']:.2f} m | "
+                f"TCPA: {cpa_result['tcpa_s']:.2f} s | "
+                f"Riesgo: {cpa_result['risk']}"
+            )
+
+            print(
+                f"Demarcación verdadera: {bearing_info['true_bearing_deg']:.2f}° | "
+                f"Demarcación relativa: {bearing_info['relative_bearing_deg']:.2f}° | "
+                f"Sector: {bearing_info['side']}"
+            )
+
+            print(
+                f"Encuentro: {classification['encounter_name']} | "
+                f"Rol USV: {classification['ownship_role']} | "
+                f"Debe maniobrar: {classification['should_maneuver']} | "
+                f"Motivo: {classification['reason']}"
+            )
+
+        critical_assessment = select_most_critical_assessment(assessments)
+
+        state_info=state_machine.update(
+            assessment=critical_assessment,
+            route_recovered=False,
         )
 
-        target_history.append(
-            {
-            "mmsi": target["mmsi"],
-            "lat": target["lat"],
-            "lon": target["lon"],
-            "sog_kn": target["sog_kn"],
-            "cog_deg": target["cog_deg"],
-            "heading_deg": target["heading_deg"],
-            "cpa_m": cpa_result["cpa_m"],
-            "tcpa_s": cpa_result["tcpa_s"],
-            "risk": cpa_result["risk"],
-            "encounter_name": classification["encounter_name"],
-            }
-        )
-
-        print("=" * 70)
-
+        print("-" * 70)
         print(
-            f"USV | "
-            f"t={ownship['timestamp']:.1f} s | "
-            f"Lat={ownship['lat']:.6f} | "
-            f"Lon={ownship['lon']:.6f} | "
-            f"SOG={ownship['sog_kn']} kn | "
-            f"COG={ownship['cog_deg']}° | "
-            f"HDG={ownship['heading_deg']}°"
-        )
-
-        print(
-            f"MMSI={target['mmsi']} | "
-            f"Lat={target['lat']:.6f} | "
-            f"Lon={target['lon']:.6f} | "
-            f"SOG={target['sog_kn']} kn | "
-            f"COG={target['cog_deg']}°"
-        )
-
-        print(
-            f"Distancia actual: {cpa_result['distance_m']:.2f} m | "
-            f"CPA: {cpa_result['cpa_m']:.2f} m | "
-            f"TCPA: {cpa_result['tcpa_s']:.2f} s | "
-            f"Riesgo: {cpa_result['risk']}"
-        )
-
-        print(
-            f"Demarcación verdadera: {bearing_info['true_bearing_deg']:.2f}° | "
-            f"Demarcación relativa: {bearing_info['relative_bearing_deg']:.2f}° | "
-            f"Sector: {bearing_info['side']}"
-        )
-
-        print(
-            f"Encuentro: {classification['encounter_name']} | "
-            f"Rol USV: {classification['ownship_role']} | "
-            f"Debe maniobrar: {classification['should_maneuver']} | "
-            f"Motivo: {classification['reason']}"
+        f"Estado algoritmo: {state_info['current_state']} | "
+        f"Blanco activo: {state_info['active_target_mmsi']} | "
+        f"Motivo: {state_info['reason']}"
         )
 
         ownship = advance_vessel_state(
