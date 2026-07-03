@@ -6,8 +6,12 @@ from usv_avoidance.ais_adapter import AisNmeaReceiver
 from usv_avoidance.cpa_tcpa import calculate_cpa_tcpa
 from usv_avoidance.encounter_geometry import calculate_bearing_info
 from usv_avoidance.encounter_classifier import classify_encounter
-from usv_avoidance.motion_model import advance_vessel_state
 from usv_avoidance.target_tracker import TargetTracker
+from usv_avoidance.avoidance import recommend_avoidance_maneuver
+from usv_avoidance.motion_model import (
+    advance_vessel_state,
+    advance_vessel_state_with_course_command,
+)
 
 from usv_avoidance.scenario_config import (
     OUTPUT_FILE,
@@ -18,6 +22,7 @@ from usv_avoidance.scenario_config import (
     USV_HEADING_DEG,
     STEP_S,
     DELAY_S,
+    USV_TURN_RATE_DEG_S,
 )
 
 from usv_avoidance.state_machine import (
@@ -271,6 +276,9 @@ def main():
     usv_history = []
     target_history = [] 
 
+    active_evasive_course_deg = None
+    commanded_course_deg = USV_COG_DEG #Rumbo inicial del USV, que se puede modificar si el algoritmo decide maniobrar.
+
     for sentence in source.read_sentences():
         ais_data = receiver.ingest(sentence)
 
@@ -406,6 +414,18 @@ def main():
             route_recovered=False,
         )
 
+        avoidance_decision = None
+
+        if critical_assessment is not None:
+            avoidance_decision = recommend_avoidance_maneuver(
+                ownship=ownship,
+                target=critical_assessment["target"],
+                classification=critical_assessment["classification"],
+                state_info=state_info,
+                safety_radius_m=50.0,
+                time_horizon_s=300.0,
+            )
+
         print("-" * 70)
         print(
         f"Estado algoritmo: {state_info['current_state']} | "
@@ -413,9 +433,51 @@ def main():
         f"Motivo: {state_info['reason']}"
         )
 
-        ownship = advance_vessel_state(
+        if avoidance_decision is not None:
+            print(
+                f"Decisión evasiva: {avoidance_decision['action']} | "
+                f"Rumbo recomendado: {avoidance_decision['recommended_course_deg']:.1f}° | "
+                f"Caída: {avoidance_decision['course_change_deg']:.1f}° | "
+                f"Motivo: {avoidance_decision['reason']}"
+            )
+
+        if avoidance_decision is not None:
+            current_state = state_info["current_state"]
+
+            if (
+                current_state == "AVOIDING_TARGET"
+                and avoidance_decision["maneuver_required"]
+            ):
+                if active_evasive_course_deg is None:
+                    active_evasive_course_deg = avoidance_decision["recommended_course_deg"]
+
+                commanded_course_deg = active_evasive_course_deg
+
+                print(
+                    f"Maniobra ordenada: caer hacia "
+                    f"{commanded_course_deg:.1f}°"
+                )
+
+            elif (
+                current_state == "CLEARING_TARGET"
+                and active_evasive_course_deg is not None
+            ):
+                commanded_course_deg = active_evasive_course_deg
+
+                print(
+                    f"Manteniendo rumbo evasivo ordenado: "
+                    f"{commanded_course_deg:.1f}°"
+                )
+
+            elif current_state == "TRACKING_ROUTE":
+                active_evasive_course_deg = None
+                commanded_course_deg = USV_COG_DEG
+
+        ownship = advance_vessel_state_with_course_command(
             vessel=ownship,
+            commanded_course_deg=commanded_course_deg,
             dt_s=STEP_S,
+            turn_rate_deg_s=USV_TURN_RATE_DEG_S,
         )
 
     if args.visualize:

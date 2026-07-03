@@ -39,6 +39,7 @@ USV_LON0 = -71.625000
 USV_SOG_KN = 6.0
 USV_COG_DEG = 0.0
 USV_HEADING_DEG = 0.0
+USV_TURN_RATE_DEG_S = 1.0
 
 
 # ============================================================
