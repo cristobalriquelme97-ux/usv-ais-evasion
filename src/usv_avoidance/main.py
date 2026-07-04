@@ -8,6 +8,7 @@ from usv_avoidance.encounter_geometry import calculate_bearing_info
 from usv_avoidance.encounter_classifier import classify_encounter
 from usv_avoidance.target_tracker import TargetTracker
 from usv_avoidance.avoidance import recommend_avoidance_maneuver
+from usv_avoidance.route_manager import RouteManager
 from usv_avoidance.motion_model import (
     advance_vessel_state,
     advance_vessel_state_with_course_command,
@@ -273,6 +274,11 @@ def main():
         "timestamp": 0.0,
     }
 
+    route_manager = RouteManager(
+        original_course_deg=USV_COG_DEG,
+        recovery_tolerance_deg=3.0,
+    )
+
     usv_history = []
     target_history = [] 
 
@@ -409,9 +415,13 @@ def main():
 
         critical_assessment = select_most_critical_assessment(assessments)
 
+        route_recovered = route_manager.is_route_recovered(
+            current_course_deg=ownship["cog_deg"],
+        )
+
         state_info=state_machine.update(
             assessment=critical_assessment,
-            route_recovered=False,
+            route_recovered=route_recovered,
         )
 
         avoidance_decision = None
@@ -472,6 +482,15 @@ def main():
             elif current_state == "TRACKING_ROUTE":
                 active_evasive_course_deg = None
                 commanded_course_deg = USV_COG_DEG
+
+            elif current_state == "RETURNING_TO_TRACK":
+                active_evasive_course_deg = None
+                commanded_course_deg = route_manager.get_return_course()
+
+            print(
+                f"Retornando a ruta: rumbo ordenado "
+                f"{commanded_course_deg:.1f}°"
+            )
 
         ownship = advance_vessel_state_with_course_command(
             vessel=ownship,
