@@ -434,6 +434,8 @@ def main():
                 state_info=state_info,
                 safety_radius_m=50.0,
                 time_horizon_s=300.0,
+                dt_s=STEP_S,
+                turn_rate_deg_s=USV_TURN_RATE_DEG_S,
             )
 
         print("-" * 70)
