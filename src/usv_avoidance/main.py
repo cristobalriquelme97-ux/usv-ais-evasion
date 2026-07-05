@@ -9,6 +9,7 @@ from usv_avoidance.encounter_classifier import classify_encounter
 from usv_avoidance.target_tracker import TargetTracker
 from usv_avoidance.avoidance import recommend_avoidance_maneuver
 from usv_avoidance.route_manager import RouteManager
+from usv_avoidance.simulation_metrics import SimulationMetrics
 from usv_avoidance.motion_model import (
     advance_vessel_state,
     advance_vessel_state_with_course_command,
@@ -252,6 +253,14 @@ def main():
 
     scenario_file = resolve_scenario_file(args.scenario)
 
+    results_dir = Path(scenario_file).parent.parent / "results"
+
+    metrics = SimulationMetrics(
+        scenario_name=Path(scenario_file).stem,
+        original_course_deg=USV_COG_DEG,
+        safety_radius_m=50.0,
+    )
+
     print("=" * 70)
     print(f"Escenario seleccionado: {scenario_file}")
     print("=" * 70)
@@ -283,6 +292,7 @@ def main():
     target_history = [] 
 
     active_evasive_course_deg = None
+    active_avoidance_decision = None
     commanded_course_deg = USV_COG_DEG #Rumbo inicial del USV, que se puede modificar si el algoritmo decide maniobrar.
 
     for sentence in source.read_sentences():
@@ -446,6 +456,36 @@ def main():
         )
 
         if avoidance_decision is not None:
+            avoidance_decision = None
+            current_state = state_info["current_state"]
+
+# ------------------------------------------------------------
+# 1. Calcular nueva decisión evasiva solo al iniciar evasión
+# ------------------------------------------------------------
+        if (
+            critical_assessment is not None
+            and current_state == "AVOIDING_TARGET"
+            and active_evasive_course_deg is None
+        ):
+            avoidance_decision = recommend_avoidance_maneuver(
+                ownship=ownship,
+                target=critical_assessment["target"],
+                classification=critical_assessment["classification"],
+                state_info=state_info,
+                safety_radius_m=50.0,
+                time_horizon_s=300.0,
+                dt_s=STEP_S,
+                turn_rate_deg_s=USV_TURN_RATE_DEG_S,
+            )
+
+            if avoidance_decision["maneuver_required"]:
+                active_evasive_course_deg = avoidance_decision["recommended_course_deg"]
+                active_avoidance_decision = avoidance_decision
+
+# ------------------------------------------------------------
+# 2. Imprimir decisión evasiva solo si fue calculada ahora
+# ------------------------------------------------------------
+        if avoidance_decision is not None:
             print(
                 f"Decisión evasiva: {avoidance_decision['action']} | "
                 f"Rumbo recomendado: {avoidance_decision['recommended_course_deg']:.1f}° | "
@@ -453,46 +493,71 @@ def main():
                 f"Motivo: {avoidance_decision['reason']}"
             )
 
-        if avoidance_decision is not None:
-            current_state = state_info["current_state"]
-
-            if (
-                current_state == "AVOIDING_TARGET"
-                and avoidance_decision["maneuver_required"]
-            ):
-                if active_evasive_course_deg is None:
-                    active_evasive_course_deg = avoidance_decision["recommended_course_deg"]
-
+# ------------------------------------------------------------
+# 3. Definir orden de gobierno según estado del algoritmo
+# ------------------------------------------------------------
+        if current_state == "AVOIDING_TARGET":
+            if active_evasive_course_deg is not None:
                 commanded_course_deg = active_evasive_course_deg
 
                 print(
-                    f"Maniobra ordenada: caer hacia "
-                    f"{commanded_course_deg:.1f}°"
+                    f"Orden de gobierno: EVASIÓN | "
+                    f"Rumbo ordenado: {commanded_course_deg:.1f}°"
+                )
+            else:
+                commanded_course_deg = ownship["cog_deg"]
+
+                print(
+                    f"Orden de gobierno: MANTENER | "
+                    f"Rumbo ordenado: {commanded_course_deg:.1f}°"
                 )
 
-            elif (
-                current_state == "CLEARING_TARGET"
-                and active_evasive_course_deg is not None
-            ):
+        elif current_state == "CLEARING_TARGET":
+            if active_evasive_course_deg is not None:
                 commanded_course_deg = active_evasive_course_deg
 
                 print(
-                    f"Manteniendo rumbo evasivo ordenado: "
-                    f"{commanded_course_deg:.1f}°"
+                    f"Orden de gobierno: CONFIRMAR DESPEJE | "
+                    f"manteniendo rumbo evasivo: {commanded_course_deg:.1f}°"
                 )
 
-            elif current_state == "TRACKING_ROUTE":
-                active_evasive_course_deg = None
-                commanded_course_deg = USV_COG_DEG
-
-            elif current_state == "RETURNING_TO_TRACK":
-                active_evasive_course_deg = None
-                commanded_course_deg = route_manager.get_return_course()
+        elif current_state == "RETURNING_TO_TRACK":
+            active_evasive_course_deg = None
+            active_avoidance_decision = None
+            commanded_course_deg = route_manager.get_return_course()
 
             print(
-                f"Retornando a ruta: rumbo ordenado "
-                f"{commanded_course_deg:.1f}°"
+                f"Orden de gobierno: RETORNO A RUTA | "
+                f"Rumbo ordenado: {commanded_course_deg:.1f}°"
             )
+
+        elif current_state == "TRACKING_ROUTE":
+            active_evasive_course_deg = None
+            active_avoidance_decision = None
+            commanded_course_deg = USV_COG_DEG
+
+            print(
+                f"Orden de gobierno: RUTA NORMAL | "
+                f"Rumbo ordenado: {commanded_course_deg:.1f}°"
+            )
+
+        elif current_state == "ASSESSING_TARGET":
+            commanded_course_deg = ownship["cog_deg"]
+
+            print(
+                f"Orden de gobierno: EVALUACIÓN | "
+                f"mantener rumbo actual: {commanded_course_deg:.1f}°"
+            )
+
+        metrics.record_step(
+            ownship=ownship,
+            critical_assessment=critical_assessment,
+            state_info=state_info,
+            commanded_course_deg=commanded_course_deg,
+            route_recovered=route_recovered,
+            dt_s=STEP_S,
+            avoidance_decision=active_avoidance_decision,
+        )
 
         ownship = advance_vessel_state_with_course_command(
             vessel=ownship,
@@ -500,6 +565,38 @@ def main():
             dt_s=STEP_S,
             turn_rate_deg_s=USV_TURN_RATE_DEG_S,
         )
+
+    metric_paths = metrics.save(output_dir=results_dir)
+
+    summary = metrics.build_summary()
+
+    min_distance_text = (
+        f"{summary['min_distance_m']:.2f} m"
+        if summary["min_distance_m"] is not None
+        else "sin datos"
+    )
+
+    min_cpa_text = (
+        f"{summary['min_cpa_m']:.2f} m"
+        if summary["min_cpa_m"] is not None
+        else "sin datos"
+    )
+
+    print("-" * 70)
+    print("Resumen de métricas de simulación:")
+    print(f"Escenario: {summary['scenario_name']}")
+    print(f"Estado final: {summary['final_state']}")
+    print(f"Maniobra seleccionada: {summary['selected_action']}")
+    print(f"Caída seleccionada: {summary['selected_course_change_deg']}°")
+    print(f"Distancia mínima real: {min_distance_text}")
+    print(f"CPA mínimo calculado: {min_cpa_text}")
+    print(f"Violó radio de seguridad: {summary['safety_radius_violated']}")
+    print(f"Tiempo en evasión: {summary['time_in_avoidance_s']:.1f} s")
+    print(f"Tiempo en despeje: {summary['time_in_clearing_s']:.1f} s")
+    print(f"Tiempo retornando a ruta: {summary['time_returning_to_track_s']:.1f} s")
+    print(f"Ruta recuperada: {summary['route_recovered_ever']}")
+    print(f"Historial CSV: {metric_paths['steps_path']}")
+    print(f"Resumen JSON: {metric_paths['summary_path']}")
 
     if args.visualize:
         visualize_processed_scenario(

@@ -1,0 +1,21 @@
+{
+    "scenario_name": "crossing_starboard_risk_nmea",
+    "safety_radius_m": 50.0,
+    "final_state": "TRACKING_ROUTE",
+    "route_recovered_ever": true,
+    "selected_action": "alter_course_starboard",
+    "selected_course_change_deg": 15.0,
+    "selected_course_deg": 15.0,
+    "min_distance_m": 89.45957318892016,
+    "time_at_min_distance_s": 145.0,
+    "min_cpa_m": 0.010076484974567193,
+    "time_at_min_cpa_s": 0.0,
+    "safety_radius_violated": false,
+    "first_avoidance_time_s": 0.0,
+    "last_avoidance_time_s": 140.0,
+    "time_in_avoidance_s": 145.0,
+    "time_in_clearing_s": 10.0,
+    "time_returning_to_track_s": 15.0,
+    "max_abs_course_deviation_deg": 15.0,
+    "total_samples": 41
+}
