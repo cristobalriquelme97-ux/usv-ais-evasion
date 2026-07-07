@@ -62,6 +62,25 @@ class SimulationMetrics:
         self.route_recovered_ever = False
         self.final_state = None
 
+        # Métricas de seguridad
+        self.first_risk_time_s = None
+        self.safety_violation_time_s = None
+        self.risk_detected_ever = False
+
+        # Métricas de eficiencia
+        self.reaction_time_s = None
+        self.avoidance_started_ever = False
+        self.route_recovered_after_avoidance = False
+
+        # Métricas de estabilidad lógica y de mando
+        self.previous_state = None
+        self.state_transition_count = 0
+
+        self.previous_commanded_course_deg = None
+        self.commanded_course_change_count = 0
+        self.total_commanded_course_variation_deg = 0.0
+        self.max_commanded_course_step_deg = 0.0
+
     def record_step(
         self,
         ownship: Mapping[str, Any],
@@ -84,14 +103,34 @@ class SimulationMetrics:
 
         self.final_state = current_state
 
+        # Conteo de cambios de estado del algoritmo.
+        # Esto permite evaluar estabilidad lógica:
+        # mientras menos cambios innecesarios existan, más estable es la decisión.
+        if self.previous_state is not None and current_state != self.previous_state:
+            self.state_transition_count += 1
+
+        self.previous_state = current_state
+
         if route_recovered:
             self.route_recovered_ever = True
 
+            if self.avoidance_started_ever and current_state in (
+                    "RETURNING_TO_TRACK",
+                    "TRACKING_ROUTE",
+                ):
+                    self.route_recovered_after_avoidance = True
+
         if current_state == "AVOIDING_TARGET":
             self.time_in_avoidance_s += dt_s
+            self.avoidance_started_ever = True
 
             if self.first_avoidance_time_s is None:
                 self.first_avoidance_time_s = timestamp_s
+
+                if self.first_risk_time_s is not None:
+                    self.reaction_time_s = (
+                        self.first_avoidance_time_s - self.first_risk_time_s
+                    )
 
             self.last_avoidance_time_s = timestamp_s
 
@@ -110,6 +149,26 @@ class SimulationMetrics:
 
         if course_deviation_deg > self.max_abs_course_deviation_deg:
             self.max_abs_course_deviation_deg = course_deviation_deg
+
+        # Variación del rumbo ordenado entre una muestra y la siguiente.
+        # Esto permite evaluar estabilidad de mando.
+        # Mientras menos cambios bruscos de rumbo ordenado existan, más estable es la maniobra.
+        if self.previous_commanded_course_deg is not None:
+            commanded_course_step_deg = abs(
+                shortest_angle_difference_deg(
+                    target_deg=self.previous_commanded_course_deg,
+                    current_deg=float(commanded_course_deg),
+                )
+            )
+
+            if commanded_course_step_deg > 1e-6:
+                self.commanded_course_change_count += 1
+                self.total_commanded_course_variation_deg += commanded_course_step_deg
+
+                if commanded_course_step_deg > self.max_commanded_course_step_deg:
+                    self.max_commanded_course_step_deg = commanded_course_step_deg
+
+        self.previous_commanded_course_deg = float(commanded_course_deg)
 
         target_mmsi = None
         distance_m = None
@@ -130,6 +189,10 @@ class SimulationMetrics:
             cpa_m = float(cpa_result["cpa_m"])
             tcpa_s = float(cpa_result["tcpa_s"])
             risk = bool(cpa_result["risk"])
+            if risk:
+                self.risk_detected_ever = True
+                if self.first_risk_time_s is None:
+                    self.first_risk_time_s = timestamp_s
             encounter_name = classification.get("encounter_name")
             ownship_role = classification.get("ownship_role")
             should_maneuver = classification.get("should_maneuver")
@@ -137,7 +200,11 @@ class SimulationMetrics:
             if distance_m < self.min_distance_m:
                 self.min_distance_m = distance_m
                 self.time_at_min_distance_s = timestamp_s
-
+            if (
+                distance_m < self.safety_radius_m
+                and self.safety_violation_time_s is None
+            ):
+                self.safety_violation_time_s = timestamp_s
             if cpa_m < self.min_cpa_m:
                 self.min_cpa_m = cpa_m
                 self.time_at_min_cpa_s = timestamp_s
@@ -162,34 +229,34 @@ class SimulationMetrics:
                 self.selected_course_deg = recommended_course_deg
 
         row = {
-            "scenario_name": self.scenario_name,
-            "timestamp_s": timestamp_s,
-            "state": current_state,
-            "target_mmsi": target_mmsi,
-            "ownship_lat": ownship.get("lat"),
-            "ownship_lon": ownship.get("lon"),
-            "ownship_sog_kn": ownship.get("sog_kn"),
-            "ownship_cog_deg": ownship.get("cog_deg"),
-            "commanded_course_deg": commanded_course_deg,
-            "distance_m": distance_m,
+            "nombre_escenario": self.scenario_name,
+            "tiempo_s": timestamp_s,
+            "estado_algoritmo": current_state,
+            "mmsi_blanco": target_mmsi,
+            "latitud_usv": ownship.get("lat"),
+            "longitud_usv": ownship.get("lon"),
+            "velocidad_usv_kn": ownship.get("sog_kn"),
+            "rumbo_usv_deg": ownship.get("cog_deg"),
+            "rumbo_ordenado_deg": commanded_course_deg,
+            "distancia_actual_m": distance_m,
             "cpa_m": cpa_m,
             "tcpa_s": tcpa_s,
-            "risk": risk,
-            "encounter_name": encounter_name,
-            "ownship_role": ownship_role,
-            "should_maneuver": should_maneuver,
-            "avoidance_action": action,
-            "maneuver_required": maneuver_required,
-            "recommended_course_deg": recommended_course_deg,
-            "course_change_deg": course_change_deg,
-            "route_recovered": route_recovered,
+            "riesgo_colision": risk,
+            "tipo_encuentro": encounter_name,
+            "rol_usv": ownship_role,
+            "debe_maniobrar": should_maneuver,
+            "accion_evasiva": action,
+            "maniobra_requerida": maneuver_required,
+            "rumbo_recomendado_deg": recommended_course_deg,
+            "caida_rumbo_deg": course_change_deg,
+            "ruta_recuperada": route_recovered,
         }
 
         self.rows.append(row)
 
     def build_summary(self) -> dict[str, Any]:
         """
-        Construye un resumen final de la simulación.
+        Construye un resumen final de la simulación con nombres en español.
         """
 
         if self.min_distance_m == math.inf:
@@ -207,26 +274,65 @@ class SimulationMetrics:
             and min_distance_m < self.safety_radius_m
         )
 
+        if min_distance_m is None:
+            safety_margin_m = None
+        else:
+            safety_margin_m = min_distance_m - self.safety_radius_m
+
+        scenario_success = (
+            not safety_radius_violated
+            and (
+                not self.risk_detected_ever
+                or self.route_recovered_after_avoidance
+                or self.time_in_avoidance_s == 0.0
+            )
+        )
+
         return {
-            "scenario_name": self.scenario_name,
-            "safety_radius_m": self.safety_radius_m,
-            "final_state": self.final_state,
-            "route_recovered_ever": self.route_recovered_ever,
-            "selected_action": self.selected_action,
-            "selected_course_change_deg": self.selected_course_change_deg,
-            "selected_course_deg": self.selected_course_deg,
-            "min_distance_m": min_distance_m,
-            "time_at_min_distance_s": self.time_at_min_distance_s,
-            "min_cpa_m": min_cpa_m,
-            "time_at_min_cpa_s": self.time_at_min_cpa_s,
-            "safety_radius_violated": safety_radius_violated,
-            "first_avoidance_time_s": self.first_avoidance_time_s,
-            "last_avoidance_time_s": self.last_avoidance_time_s,
-            "time_in_avoidance_s": self.time_in_avoidance_s,
-            "time_in_clearing_s": self.time_in_clearing_s,
-            "time_returning_to_track_s": self.time_returning_to_track_s,
-            "max_abs_course_deviation_deg": self.max_abs_course_deviation_deg,
-            "total_samples": len(self.rows),
+            "nombre_escenario": self.scenario_name,
+            "radio_seguridad_m": self.safety_radius_m,
+            "estado_final": self.final_state,
+
+            # Resultado global
+            "escenario_exitoso": scenario_success,
+            "riesgo_detectado": self.risk_detected_ever,
+            "violo_radio_seguridad": safety_radius_violated,
+            "ruta_recuperada_alguna_vez": self.route_recovered_ever,
+            "ruta_recuperada_despues_evasion": self.route_recovered_after_avoidance, #El usv maniobró y luego volvió a su rumbo original.
+
+            # Maniobra seleccionada
+            "accion_seleccionada": self.selected_action,
+            "caida_seleccionada_deg": self.selected_course_change_deg,
+            "rumbo_seleccionado_deg": self.selected_course_deg,
+
+            # Seguridad
+            "distancia_minima_m": min_distance_m,
+            "tiempo_distancia_minima_s": self.time_at_min_distance_s,
+            "cpa_minimo_m": min_cpa_m,
+            "tiempo_cpa_minimo_s": self.time_at_min_cpa_s,
+            "margen_seguridad_minimo_m": safety_margin_m,
+            "1era_deteccion_riesgo_s": self.first_risk_time_s,
+            "1era_violacion_seguridad_s": self.safety_violation_time_s, #Si nunca entra en violación, queda None
+
+            # Eficiencia
+            "1era_evasion_s": self.first_avoidance_time_s,
+            "ultima_evasion_s": self.last_avoidance_time_s,
+            "tiempo_reaccion_s": self.reaction_time_s,
+            "tiempo_total_evasion_s": self.time_in_avoidance_s,
+            "tiempo_total_despeje_s": self.time_in_clearing_s,
+            "tiempo_total_retorno_ruta_s": self.time_returning_to_track_s,
+
+            # Estabilidad
+            "desviacion_maxima_rumbo_usv_deg": self.max_abs_course_deviation_deg,
+            "cantidad_cambios_estado": self.state_transition_count,
+            "cantidad_cambios_rumbo_ordenado": self.commanded_course_change_count,
+            "variacion_total_rumbo_ordenado_deg": (
+                self.total_commanded_course_variation_deg
+            ),
+            "max_cambio_rumbo_ordenado_deg": self.max_commanded_course_step_deg,
+
+            # Datos generales
+            "total_muestras": len(self.rows),
         }
 
     def save(self, output_dir: Path) -> dict[str, Path]:

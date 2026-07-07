@@ -556,30 +556,51 @@ def main():
     summary = metrics.build_summary()
 
     min_distance_text = (
-        f"{summary['min_distance_m']:.2f} m"
-        if summary["min_distance_m"] is not None
+        f"{summary['distancia_minima_m']:.2f} m"
+        if summary["distancia_minima_m"] is not None
         else "sin datos"
     )
 
     min_cpa_text = (
-        f"{summary['min_cpa_m']:.2f} m"
-        if summary["min_cpa_m"] is not None
+        f"{summary['cpa_minimo_m']:.2f} m"
+        if summary["cpa_minimo_m"] is not None
+        else "sin datos"
+    )
+
+    margen_seguridad_text = (
+        f"{summary['margen_seguridad_minimo_m']:.2f} m"
+        if summary["margen_seguridad_minimo_m"] is not None
+        else "sin datos"
+    )
+
+    tiempo_reaccion_text = (
+        f"{summary['tiempo_reaccion_s']:.1f} s"
+        if summary["tiempo_reaccion_s"] is not None
         else "sin datos"
     )
 
     print("-" * 70)
     print("Resumen de métricas de simulación:")
-    print(f"Escenario: {summary['scenario_name']}")
-    print(f"Estado final: {summary['final_state']}")
-    print(f"Maniobra seleccionada: {summary['selected_action']}")
-    print(f"Caída seleccionada: {summary['selected_course_change_deg']}°")
+    print(f"Escenario: {summary['nombre_escenario']}")
+    print(f"Estado final: {summary['estado_final']}")
+    print(f"Escenario exitoso: {summary['escenario_exitoso']}")
+    print(f"Maniobra seleccionada: {summary['accion_seleccionada']}")
+    print(f"Caída seleccionada: {summary['caida_seleccionada_deg']}°")
     print(f"Distancia mínima real: {min_distance_text}")
     print(f"CPA mínimo calculado: {min_cpa_text}")
-    print(f"Violó radio de seguridad: {summary['safety_radius_violated']}")
-    print(f"Tiempo en evasión: {summary['time_in_avoidance_s']:.1f} s")
-    print(f"Tiempo en despeje: {summary['time_in_clearing_s']:.1f} s")
-    print(f"Tiempo retornando a ruta: {summary['time_returning_to_track_s']:.1f} s")
-    print(f"Ruta recuperada: {summary['route_recovered_ever']}")
+    print(f"Margen mínimo de seguridad: {margen_seguridad_text}")
+    print(f"Violó radio de seguridad: {summary['violo_radio_seguridad']}")
+    print(f"Tiempo de reacción: {tiempo_reaccion_text}")
+    print(f"Tiempo en evasión: {summary['tiempo_total_evasion_s']:.1f} s")
+    print(f"Tiempo en despeje: {summary['tiempo_total_despeje_s']:.1f} s")
+    print(f"Tiempo retornando a ruta: {summary['tiempo_total_retorno_ruta_s']:.1f} s")
+    print(f"Ruta recuperada después de evasión: {summary['ruta_recuperada_despues_evasion']}")
+    print(f"Cambios de estado: {summary['cantidad_cambios_estado']}")
+    print(f"Cambios de rumbo ordenado: {summary['cantidad_cambios_rumbo_ordenado']}")
+    print(
+        "Variación total de rumbo ordenado: "
+        f"{summary['variacion_total_rumbo_ordenado_deg']:.1f}°"
+    )
     print(f"Historial CSV: {metric_paths['steps_path']}")
     print(f"Resumen JSON: {metric_paths['summary_path']}")
 
