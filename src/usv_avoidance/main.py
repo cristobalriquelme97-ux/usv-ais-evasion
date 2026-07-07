@@ -429,35 +429,20 @@ def main():
             current_course_deg=ownship["cog_deg"],
         )
 
-        state_info=state_machine.update(
+        state_info = state_machine.update(
             assessment=critical_assessment,
             route_recovered=route_recovered,
         )
 
+        current_state = state_info["current_state"]
         avoidance_decision = None
-
-        if critical_assessment is not None:
-            avoidance_decision = recommend_avoidance_maneuver(
-                ownship=ownship,
-                target=critical_assessment["target"],
-                classification=critical_assessment["classification"],
-                state_info=state_info,
-                safety_radius_m=50.0,
-                time_horizon_s=300.0,
-                dt_s=STEP_S,
-                turn_rate_deg_s=USV_TURN_RATE_DEG_S,
-            )
 
         print("-" * 70)
         print(
-        f"Estado algoritmo: {state_info['current_state']} | "
-        f"Blanco activo: {state_info['active_target_mmsi']} | "
-        f"Motivo: {state_info['reason']}"
+            f"Estado algoritmo: {current_state} | "
+            f"Blanco activo: {state_info['active_target_mmsi']} | "
+            f"Motivo: {state_info['reason']}"
         )
-
-        if avoidance_decision is not None:
-            avoidance_decision = None
-            current_state = state_info["current_state"]
 
 # ------------------------------------------------------------
 # 1. Calcular nueva decisión evasiva solo al iniciar evasión
