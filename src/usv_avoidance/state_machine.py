@@ -120,12 +120,23 @@ class NavigationStateMachine:
             distance_m=distance_m,
         )
 
+        cpa_m = float(cpa_result.get("cpa_m", inf))
+        safety_radius_m = float(cpa_result.get("safety_radius_m", 50.0))
+        # El blanco se considera despejado si el CPA es mayor al radio de seguridad o si el TCPA es negativo (ya pasó el punto de máxima aproximación).
+        cpa_safe = cpa_m >= safety_radius_m
         target_passed_cpa = tcpa_s < 0.0
 
-        # Se considera blanco claro cuando:
-        # - ya no hay riesgo,
-        # - y además el TCPA es negativo o la distancia aumenta.
-        target_clear = (not risk) and (target_passed_cpa or distance_increasing)
+        return_cpa_result = assessment.get("return_cpa_result")
+
+        return_course_safe = False
+
+        if return_cpa_result is not None:
+            return_cpa_m = float(return_cpa_result.get("cpa_m", 0.0))
+            return_safety_radius_m = float(return_cpa_result.get("safety_radius_m", 50.0))
+
+            return_course_safe = return_cpa_m >= return_safety_radius_m
+
+        target_clear = target_passed_cpa or return_course_safe
 
         reason = "Estado mantenido."
 
@@ -166,22 +177,25 @@ class NavigationStateMachine:
                 reason = "Se mantiene estado evasivo."
 
         elif self.state == NavigationState.CLEARING_TARGET:
-            if risk and should_maneuver:
-                self.state = NavigationState.AVOIDING_TARGET
-                self.clear_counter = 0
-                reason = "El riesgo reapareció; volver a evasión."
-            elif risk:
-                self.state = NavigationState.ASSESSING_TARGET
-                self.clear_counter = 0
-                reason = "Riesgo reaparece; volver a evaluación."
-            elif target_clear:
+            if target_clear:
                 self.clear_counter += 1
 
                 if self.clear_counter >= self.config.clear_samples_required:
                     self.state = NavigationState.RETURNING_TO_TRACK
-                    reason = "Blanco claro durante varias actualizaciones."
+                    reason = "Blanco claro durante tres actualizaciones consecutivas."
                 else:
                     reason = "Confirmando que el blanco quedó claro."
+
+            elif risk and should_maneuver:
+                self.state = NavigationState.AVOIDING_TARGET
+                self.clear_counter = 0
+                reason = "El riesgo reapareció; volver a evasión."
+
+            elif risk:
+                self.state = NavigationState.ASSESSING_TARGET
+                self.clear_counter = 0
+                reason = "Riesgo reaparece; volver a evaluación."
+
             else:
                 self.clear_counter = 0
                 reason = "Aún no se confirma despeje del blanco."

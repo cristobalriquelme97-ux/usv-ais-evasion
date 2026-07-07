@@ -100,11 +100,7 @@ def simulate_course_candidate_with_turn_rate(
 
     safety_radius_was_violated = min_distance_m < safety_radius_m
 
-    candidate_is_safe = (
-        not safety_radius_was_violated
-        and not final_risk
-        and final_cpa_m >= safety_radius_m
-    )
+    candidate_is_safe = min_distance_m >= safety_radius_m
 
     return {
         "candidate_course_deg": candidate_course_deg,
@@ -174,7 +170,7 @@ def recommend_avoidance_maneuver(
     time_horizon_s: float = 300.0,
     dt_s: float = 5.0,
     turn_rate_deg_s: float = 1.0,
-    starboard_changes_deg: tuple[float, ...] = (15.0, 30.0, 45.0, 60.0),
+    starboard_changes_deg: tuple[float, ...] = (5.0, 10.0, 15.0, 20.0, 25.0),
 ) -> dict[str, Any]:
     """
     Recomienda una maniobra evasiva.

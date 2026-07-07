@@ -335,6 +335,17 @@ def main():
                 safety_radius_m=50.0,
                 time_horizon_s=300.0,
             )
+
+            return_course_ownship = dict(ownship)
+            return_course_ownship["cog_deg"] = route_manager.get_return_course()
+            return_course_ownship["heading_deg"] = route_manager.get_return_course()
+
+            return_cpa_result = calculate_cpa_tcpa(
+                ownship=return_course_ownship,
+                target=target,
+                safety_radius_m=50.0,
+                time_horizon_s=300.0,
+            )
         
             bearing_info = calculate_bearing_info(
                 ownship=ownship,
@@ -351,6 +362,7 @@ def main():
             assessment = {
                 "target": target,
                 "cpa_result": cpa_result,
+                "return_cpa_result": return_cpa_result,
                 "bearing_info": bearing_info,
                 "classification": classification,
             }
