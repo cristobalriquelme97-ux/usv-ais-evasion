@@ -70,6 +70,27 @@ async function runScenario() {
     setBusy(false);
 }
 
+async function publishCurrentStep(step) {
+    try {
+        await fetch("/api/current-step", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                scenario: state.result?.scenario?.name ?? null,
+                frame: state.frame,
+                step: step,
+            }),
+        });
+    } catch (error) {
+        console.error(
+            "No fue posible publicar el paso actual:",
+            error
+        );
+    }
+}
+
 function render() {
     if (!state.result || !state.result.steps.length) {
         clearCanvas();
@@ -77,6 +98,9 @@ function render() {
     }
 
     const step = state.result.steps[state.frame];
+
+    publishCurrentStep(step);
+
     const critical = getCriticalTarget(step);
     const decision = step.avoidance_decision;
     const currentState = step.state.current_state || "--";
