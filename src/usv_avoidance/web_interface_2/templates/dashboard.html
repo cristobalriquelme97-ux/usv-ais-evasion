@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>USV AIS Evasion</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body>
+    <main class="app-shell">
+        <header class="topbar">
+            <div>
+                <p class="eyebrow">USV AIS Evasion</p>
+                <h1>Panel de simulacion evasiva</h1>
+            </div>
+            <div class="toolbar">
+                <label class="field">
+                    <span>Escenario</span>
+                    <select id="scenarioSelect"></select>
+                </label>
+                <button id="runButton" type="button">Ejecutar</button>
+                <button id="playButton" type="button">Play</button>
+                <button id="resetButton" type="button">Reset</button>
+            </div>
+        </header>
+
+        <section class="status-strip" aria-label="Resumen operativo">
+            <article>
+                <span>Estado actual</span>
+                <strong id="currentState">--</strong>
+            </article>
+            <article>
+                <span>Estado anterior</span>
+                <strong id="previousState">--</strong>
+            </article>
+            <article>
+                <span>Rumbo ordenado</span>
+                <strong id="commandedCourse">--</strong>
+            </article>
+            <article>
+                <span>Blanco critico</span>
+                <strong id="criticalTarget">--</strong>
+            </article>
+        </section>
+
+        <section class="dashboard-grid">
+            <section class="panel map-panel">
+                <div class="panel-heading">
+                    <div>
+                        <h2>Situacion tactica</h2>
+                        <p id="scenarioDescription">Seleccione un escenario.</p>
+                    </div>
+                    <div class="timebox">
+                        <span>t</span>
+                        <strong id="timeValue">0 s</strong>
+                    </div>
+                </div>
+                <canvas id="plotCanvas" width="900" height="620"></canvas>
+                <input id="timeSlider" type="range" min="0" max="0" value="0">
+            </section>
+
+            <aside class="side-stack">
+                <section class="panel metric-panel">
+                    <h2>Indicadores</h2>
+                    <div class="metric-grid">
+                        <article>
+                            <span>CPA</span>
+                            <strong id="cpaValue">--</strong>
+                        </article>
+                        <article>
+                            <span>TCPA</span>
+                            <strong id="tcpaValue">--</strong>
+                        </article>
+                        <article>
+                            <span>Distancia</span>
+                            <strong id="distanceValue">--</strong>
+                        </article>
+                        <article>
+                            <span>COG actual</span>
+                            <strong id="cogValue">--</strong>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <h2>Blancos activos</h2>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>MMSI</th>
+                                    <th>Riesgo</th>
+                                    <th>CPA</th>
+                                    <th>TCPA</th>
+                                    <th>Prioridad</th>
+                                </tr>
+                            </thead>
+                            <tbody id="targetsTable"></tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <section class="panel decision-panel">
+                    <h2>Decision</h2>
+                    <dl>
+                        <div>
+                            <dt>Encuentro</dt>
+                            <dd id="encounterValue">--</dd>
+                        </div>
+                        <div>
+                            <dt>Rol USV</dt>
+                            <dd id="roleValue">--</dd>
+                        </div>
+                        <div>
+                            <dt>Accion recomendada</dt>
+                            <dd id="actionValue">--</dd>
+                        </div>
+                        <div>
+                            <dt>Motivo</dt>
+                            <dd id="reasonValue">--</dd>
+                        </div>
+                    </dl>
+                </section>
+            </aside>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+</html>

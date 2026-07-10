@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Recomendador de Rumbo USV</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/dashboard.css') }}"
+    >
+</head>
+
+<body>
+    <main class="dashboard">
+
+        <header class="dashboard-header">
+            <div>
+                <p class="system-label">
+                    SISTEMA DE APOYO A LA DECISIÓN
+                </p>
+
+                <h1>
+                    Recomendador de rumbo USV
+                </h1>
+            </div>
+
+            <div class="connection-status">
+                <span class="status-dot"></span>
+                <span id="connectionText">Sistema conectado</span>
+            </div>
+        </header>
+
+        <section class="dashboard-grid">
+
+            <!-- Columna izquierda -->
+            <section class="left-column">
+
+                <article class="panel vessel-panel">
+                    <div class="panel-title">
+                        Embarcación propia
+                    </div>
+
+                    <div class="own-data-grid">
+                        <div>
+                            <span class="data-label">Latitud</span>
+                            <strong id="latitude">--</strong>
+                        </div>
+
+                        <div>
+                            <span class="data-label">Longitud</span>
+                            <strong id="longitude">--</strong>
+                        </div>
+
+                        <div>
+                            <span class="data-label">Velocidad</span>
+                            <strong>
+                                <span id="speed">--</span>
+                                kn
+                            </strong>
+                        </div>
+
+                        <div>
+                            <span class="data-label">Rumbo actual</span>
+                            <strong>
+                                <span id="currentHeading">---</span>°
+                            </strong>
+                        </div>
+                    </div>
+
+                    <div class="vessel-visualization">
+                        <div class="heading-ring">
+                            <span class="north-marker">N</span>
+
+                            <div
+                                class="vessel"
+                                id="vesselIcon"
+                                aria-label="Representación del USV"
+                            >
+                                <div class="vessel-bow"></div>
+                                <div class="vessel-body"></div>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="state-panel state-current">
+                    <span class="card-label">Estado actual</span>
+                    <strong id="currentState">--</strong>
+                </article>
+
+                <article class="state-panel state-previous">
+                    <span class="card-label">Estado anterior</span>
+                    <strong id="previousState">--</strong>
+                </article>
+
+            </section>
+
+            <!-- Columna central -->
+            <section class="center-column">
+
+                <article class="panel targets-panel">
+                    <div class="panel-title-row">
+                        <div>
+                            <div class="panel-title">
+                                Blancos AIS activos
+                            </div>
+
+                            <span class="panel-subtitle">
+                                Ordenados por nivel de prioridad
+                            </span>
+                        </div>
+
+                        <div class="target-count">
+                            <span id="targetCount">0</span>
+                            blancos
+                        </div>
+                    </div>
+
+                    <div class="targets-table-wrapper">
+                        <table class="targets-table">
+                            <thead>
+                                <tr>
+                                    <th>MMSI</th>
+                                    <th>Prioridad</th>
+                                </tr>
+                            </thead>
+
+                            <tbody id="targetsTableBody">
+                                <tr>
+                                    <td colspan="2">
+                                        Sin información
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </article>
+
+                <article class="information-card">
+                    <span class="card-label">
+                        Tipo de encuentro
+                    </span>
+
+                    <strong id="encounterType">
+                        --
+                    </strong>
+                </article>
+
+                <article class="information-card recommendation-card">
+                    <span class="card-label">
+                        Acción recomendada
+                    </span>
+
+                    <strong id="recommendedAction">
+                        --
+                    </strong>
+
+                    <p id="recommendationDescription">
+                        Esperando evaluación del algoritmo
+                    </p>
+                </article>
+
+            </section>
+
+            <!-- Columna derecha -->
+            <aside class="right-column">
+
+                <article class="metric-card heading-card">
+                    <span class="metric-label">
+                        Rumbo recomendado
+                    </span>
+
+                    <strong class="metric-value">
+                        <span id="recommendedHeading">---</span>°
+                    </strong>
+
+                    <span
+                        class="metric-detail"
+                        id="headingVariation"
+                    >
+                        Sin variación
+                    </span>
+                </article>
+
+                <article class="metric-card">
+                    <span class="metric-label">
+                        CPA
+                    </span>
+
+                    <strong class="metric-value">
+                        <span id="cpa">--</span>
+                        <small>m</small>
+                    </strong>
+                </article>
+
+                <article class="metric-card">
+                    <span class="metric-label">
+                        TCPA
+                    </span>
+
+                    <strong
+                        class="metric-value"
+                        id="tcpa"
+                    >
+                        --:--
+                    </strong>
+                </article>
+
+                <article class="metric-card">
+                    <span class="metric-label">
+                        Distancia
+                    </span>
+
+                    <strong class="metric-value">
+                        <span id="distance">--</span>
+                        <small>m</small>
+                    </strong>
+                </article>
+
+                <article class="priority-target-card">
+                    <span class="metric-label">
+                        Blanco prioritario
+                    </span>
+
+                    <strong id="priorityMmsi">
+                        ---------
+                    </strong>
+                </article>
+
+            </aside>
+
+        </section>
+
+        <footer class="dashboard-footer">
+            <span>
+                Recomendación automática para apoyo al operador
+            </span>
+
+            <span id="lastUpdate">
+                Sin actualización
+            </span>
+        </footer>
+
+    </main>
+
+    <script
+        src="{{ url_for('static', filename='js/dashboard.js') }}"
+    ></script>
+</body>
+</html>
