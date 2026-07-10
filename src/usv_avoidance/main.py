@@ -32,7 +32,10 @@ from usv_avoidance.state_machine import (
     select_most_critical_assessment,
 )
 
-
+SAFETY_RADIUS_M = 50.0
+TIME_HORIZON_S = 300.0
+TRACKER_MAX_AGE_S = 60.0
+ROUTE_RECOVERY_TOLERANCE_DEG = 3.0
 SCENARIOS_DIR = Path(OUTPUT_FILE).parent
 
 
@@ -258,7 +261,7 @@ def main():
     metrics = SimulationMetrics(
         scenario_name=Path(scenario_file).stem,
         original_course_deg=USV_COG_DEG,
-        safety_radius_m=50.0,
+        safety_radius_m=SAFETY_RADIUS_M,
     )
 
     print("=" * 70)
@@ -271,7 +274,7 @@ def main():
     )
 
     receiver = AisNmeaReceiver(strict_checksum=True)
-    tracker = TargetTracker(max_age_s=60.0) # Si un blanco no se actualiza en 60 segundos, se considera "stale" y se elimina.
+    tracker = TargetTracker(max_age_s=TRACKER_MAX_AGE_S) # Si un blanco no se actualiza en 60 segundos, se considera "stale" y se elimina.
     state_machine = NavigationStateMachine() # Se encarga de evaluar la situación de navegación y decidir si el USV debe maniobrar.
 
     ownship = {
@@ -285,7 +288,7 @@ def main():
 
     route_manager = RouteManager(
         original_course_deg=USV_COG_DEG,
-        recovery_tolerance_deg=3.0,
+        recovery_tolerance_deg=ROUTE_RECOVERY_TOLERANCE_DEG,
     )
 
     usv_history = []
@@ -318,13 +321,13 @@ def main():
             print("Mensaje AIS válido, pero sin datos cinemáticos suficientes.")
             continue
 
-        active_targets = tracker.get_active_targets(
-            current_time_s=ownship["timestamp"],
-        )
-
         tracker.remove_stale_targets(
             current_time_s=ownship["timestamp"],
         )
+
+        active_targets = tracker.get_active_targets(
+            current_time_s=ownship["timestamp"],
+        )      
         
         assessments = []
 
@@ -332,8 +335,8 @@ def main():
             cpa_result = calculate_cpa_tcpa(
                 ownship=ownship,
                 target=target,
-                safety_radius_m=50.0,
-                time_horizon_s=300.0,
+                safety_radius_m=SAFETY_RADIUS_M,
+                time_horizon_s=TIME_HORIZON_S,
             )
 
             return_course_ownship = dict(ownship)
@@ -343,8 +346,8 @@ def main():
             return_cpa_result = calculate_cpa_tcpa(
                 ownship=return_course_ownship,
                 target=target,
-                safety_radius_m=50.0,
-                time_horizon_s=300.0,
+                safety_radius_m=SAFETY_RADIUS_M,
+                time_horizon_s=TIME_HORIZON_S,
             )
         
             bearing_info = calculate_bearing_info(
@@ -469,8 +472,8 @@ def main():
                 target=critical_assessment["target"],
                 classification=critical_assessment["classification"],
                 state_info=state_info,
-                safety_radius_m=50.0,
-                time_horizon_s=300.0,
+                safety_radius_m=SAFETY_RADIUS_M,
+                time_horizon_s=TIME_HORIZON_S,
                 dt_s=STEP_S,
                 turn_rate_deg_s=USV_TURN_RATE_DEG_S,
             )
