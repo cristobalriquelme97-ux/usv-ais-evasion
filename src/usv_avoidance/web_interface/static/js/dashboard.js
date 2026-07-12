@@ -5,11 +5,14 @@ const stateNames = {
     NORMAL_NAVIGATION: "Navegación normal",
     TRACKING_ROUTE: "Seguimiento de ruta",
     TRACKING_TARGET: "Seguimiento de blanco",
+    ASSESSING_TARGET: "Evaluando blanco",
     RISK_DETECTED: "Riesgo detectado",
     EVALUATING_MANEUVER: "Evaluando maniobra",
     AVOIDING: "Maniobra de evasión",
     MONITORING_CPA: "Verificando separación",
+    MONITORING_PMA: "Verificando separación",
     RETURNING_ROUTE: "Retorno a la ruta",
+    RETURNING_TO_TRACK: "Retorno a la trayectoria",
 };
 
 
@@ -18,6 +21,7 @@ const encounterNames = {
     CROSSING_STARBOARD: "Cruce por estribor",
     CROSSING_PORT: "Cruce por babor",
     OVERTAKING: "Alcance",
+    BEING_OVERTAKEN: "Siendo alcanzado",
     SAFE: "Sin riesgo de colisión",
     UNKNOWN: "Encuentro no determinado",
 };
@@ -144,17 +148,29 @@ function updateDashboard(data) {
     document.getElementById("priorityMmsi").textContent =
         target.mmsi;
 
+    const currentStateKey = String(
+        navigation.current_state ?? "UNKNOWN"
+    ).trim().toUpperCase();
+
     document.getElementById("currentState").textContent =
-        stateNames[navigation.current_state]
-        ?? navigation.current_state;
+        stateNames[currentStateKey]
+        ?? "Estado no determinado";
+
+    const previousStateKey = String(
+        navigation.previous_state ?? "UNKNOWN"
+    ).trim().toUpperCase();
 
     document.getElementById("previousState").textContent =
-        stateNames[navigation.previous_state]
-        ?? navigation.previous_state;
+        stateNames[previousStateKey]
+        ?? "Estado no determinado";
+
+    const encounterKey = String(
+        navigation.encounter_type ?? "UNKNOWN"
+    ).trim().toUpperCase();
 
     document.getElementById("encounterType").textContent =
-        encounterNames[navigation.encounter_type]
-        ?? navigation.encounter_type;
+        encounterNames[encounterKey]
+        ?? "Encuentro no determinado";
 
     document.getElementById("recommendedAction").textContent =
         actionNames[navigation.recommended_action]
