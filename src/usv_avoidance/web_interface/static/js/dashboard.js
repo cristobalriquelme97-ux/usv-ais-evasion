@@ -8,7 +8,7 @@ const stateNames = {
     ASSESSING_TARGET: "Evaluando blanco",
     RISK_DETECTED: "Riesgo detectado",
     EVALUATING_MANEUVER: "Evaluando maniobra",
-    AVOIDING: "Maniobra de evasión",
+    AVOIDING_TARGET: "Maniobra de evasión",
     MONITORING_CPA: "Verificando separación",
     MONITORING_PMA: "Verificando separación",
     RETURNING_ROUTE: "Retorno a la ruta",
