@@ -136,25 +136,53 @@ def classify_relative_side(
 
     return "babor"
 
+def classify_bearing_sector(relative_bearing_360_deg: float) -> str:
+    """
+    Clasifica la demarcación relativa en uno de los seis sectores
+    geométricos empleados por el clasificador RIPA.
+
+    La entrada debe expresarse entre 0° y 360°.
+    """
+    angle = normalize_angle_360(relative_bearing_360_deg)
+
+    if angle >= 337.5 or angle < 22.5:
+        return "ahead"
+
+    if angle < 90.0:
+        return "starboard_bow_beam"
+
+    if angle < 112.5:
+        return "starboard_quarter"
+
+    if angle < 247.5:
+        return "astern"
+
+    if angle < 270.0:
+        return "port_quarter"
+
+    return "port_beam_bow"
 
 def calculate_bearing_info(
     ownship: Mapping[str, Any],
     target: Mapping[str, Any],
 ) -> dict[str, Any]:
     """
-    Calcula la demarcación verdadera, demarcación relativa y sector del blanco.
+    Calcula la demarcación verdadera, la demarcación relativa
+    y el sector geométrico del blanco.
     """
 
     true_bearing = calculate_true_bearing_deg(ownship, target)
     reference_heading = get_reference_heading_deg(ownship)
     relative_bearing = calculate_relative_bearing_deg(ownship, target)
+    relative_bearing_360 = normalize_angle_360(relative_bearing)
 
     return {
         "target_mmsi": target.get("mmsi"),
         "true_bearing_deg": true_bearing,
         "relative_bearing_deg": relative_bearing,
-        "relative_bearing_360_deg": normalize_angle_360(relative_bearing),
+        "relative_bearing_360_deg": relative_bearing_360,
         "side": classify_relative_side(relative_bearing),
+        "sector": classify_bearing_sector(relative_bearing_360),
         "reference_heading_deg": reference_heading,
     }
 

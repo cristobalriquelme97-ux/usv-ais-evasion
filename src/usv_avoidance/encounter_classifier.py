@@ -7,6 +7,15 @@ from usv_avoidance.encounter_geometry import (
     normalize_angle_signed,
 )
 
+STARBOARD_CROSSING_SECTORS = frozenset({
+    "starboard_bow_beam",
+    "starboard_quarter",
+})
+
+PORT_CROSSING_SECTORS = frozenset({
+    "port_quarter",
+    "port_beam_bow",
+})
 
 def abs_course_difference_deg(course_a_deg: float, course_b_deg: float) -> float:
     """
@@ -129,6 +138,8 @@ def classify_encounter(
 
     relative_bearing_deg = float(bearing_info["relative_bearing_deg"])
     target_side = str(bearing_info["side"])
+    target_sector = str(bearing_info["sector"])
+
 
     ownship_cog = float(ownship["cog_deg"])
     target_cog = float(target["cog_deg"])
@@ -145,6 +156,7 @@ def classify_encounter(
             "encounter_name": "sin riesgo",
             "risk": False,
             "target_side": target_side,
+            "target_sector": target_sector,
             "relative_bearing_deg": relative_bearing_deg,
             "course_difference_deg": course_difference,
             "ownship_role": "none",
@@ -162,6 +174,7 @@ def classify_encounter(
             "encounter_name": "vuelta encontrada",
             "risk": True,
             "target_side": target_side,
+            "target_sector": target_sector,
             "relative_bearing_deg": relative_bearing_deg,
             "course_difference_deg": course_difference,
             "ownship_role": "give_way",
@@ -179,6 +192,7 @@ def classify_encounter(
             "encounter_name": "alcance",
             "risk": True,
             "target_side": target_side,
+            "target_sector": target_sector,
             "relative_bearing_deg": relative_bearing_deg,
             "course_difference_deg": course_difference,
             "ownship_role": "give_way",
@@ -197,6 +211,7 @@ def classify_encounter(
             "encounter_name": "alcance por blanco",
             "risk": True,
             "target_side": target_side,
+            "target_sector": target_sector,
             "relative_bearing_deg": relative_bearing_deg,
             "course_difference_deg": course_difference,
             "ownship_role": "stand_on",
@@ -204,39 +219,64 @@ def classify_encounter(
             "reason": "El blanco se aproxima desde el sector de popa del USV.",
         }
 
-    # 4. Cruce.
-    if target_side == "estribor":
+    # 4. Cruce con el blanco por estribor.
+    target_in_starboard_crossing_sector = (
+        target_sector in STARBOARD_CROSSING_SECTORS
+        or (
+            target_sector == "ahead"
+            and relative_bearing_deg > 0.0
+        )
+    )
+
+    if target_in_starboard_crossing_sector:
         return {
             "encounter_type": "crossing",
             "encounter_name": "cruce",
             "risk": True,
             "target_side": target_side,
+            "target_sector": target_sector,
             "relative_bearing_deg": relative_bearing_deg,
             "course_difference_deg": course_difference,
             "ownship_role": "give_way",
             "should_maneuver": True,
-            "reason": "Cruce con blanco por estribor; el USV debe mantenerse apartado.",
+            "reason": (
+                "Cruce con blanco por estribor; "
+                "el USV debe mantenerse apartado."
+            ),
         }
 
-    if target_side == "babor":
+    # 5. Cruce con el blanco por babor.
+    target_in_port_crossing_sector = (
+        target_sector in PORT_CROSSING_SECTORS
+        or (
+            target_sector == "ahead"
+            and relative_bearing_deg < 0.0
+        )
+    )
+
+    if target_in_port_crossing_sector:
         return {
             "encounter_type": "crossing",
             "encounter_name": "cruce",
             "risk": True,
             "target_side": target_side,
+            "target_sector": target_sector,
             "relative_bearing_deg": relative_bearing_deg,
             "course_difference_deg": course_difference,
             "ownship_role": "stand_on",
             "should_maneuver": False,
-            "reason": "Cruce con blanco por babor; el USV mantiene rumbo y velocidad.",
+            "reason": (
+                "Cruce con blanco por babor; "
+                "el USV mantiene rumbo y velocidad."
+            ),
         }
-
     # 5. Caso ambiguo.
     return {
         "encounter_type": "undefined",
         "encounter_name": "indefinido",
         "risk": True,
         "target_side": target_side,
+        "target_sector": target_sector,
         "relative_bearing_deg": relative_bearing_deg,
         "course_difference_deg": course_difference,
         "ownship_role": "caution",
