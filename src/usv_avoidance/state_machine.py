@@ -4,7 +4,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from math import inf
 from typing import Any, Mapping
-
+from usv_avoidance.target_priority import (
+    select_most_critical_assessment,
+)
 
 class NavigationState(str, Enum):
     """
@@ -260,47 +262,6 @@ class NavigationStateMachine:
         }
 
 
-def select_most_critical_assessment(
-    assessments: list[Mapping[str, Any]],
-) -> Mapping[str, Any] | None:
-    """
-    Selecciona el blanco más crítico entre varios blancos activos.
-
-    Criterio:
-    1. Prioriza blancos con riesgo.
-    2. Prioriza blancos donde el USV debe maniobrar.
-    3. Prioriza menor TCPA positivo.
-    4. Prioriza menor CPA.
-    """
-
-    if not assessments:
-        return None
-
-    def score(assessment: Mapping[str, Any]) -> tuple[float, float, float, float]:
-        cpa_result = assessment["cpa_result"]
-        classification = assessment["classification"]
-
-        risk = bool(classification.get("risk", cpa_result.get("risk", False)))
-        should_maneuver = bool(classification.get("should_maneuver", False))
-
-        cpa_m = float(cpa_result.get("cpa_m", inf))
-        tcpa_s = float(cpa_result.get("tcpa_s", inf))
-
-        # Si TCPA es negativo, el punto de máxima aproximación ya pasó.
-        # Por eso se manda al final de la prioridad temporal.
-        tcpa_priority = tcpa_s if tcpa_s >= 0.0 else inf
-
-        risk_priority = 0.0 if risk else 1.0
-        maneuver_priority = 0.0 if should_maneuver else 1.0
-
-        return (
-            risk_priority,
-            maneuver_priority,
-            tcpa_priority,
-            cpa_m,
-        )
-
-    return min(assessments, key=score)
 
 
 if __name__ == "__main__":

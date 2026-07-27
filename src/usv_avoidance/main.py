@@ -3,9 +3,10 @@ from pathlib import Path
 
 from usv_avoidance.nmea_file_source import NmeaFileSource
 from usv_avoidance.ais_adapter import AisNmeaReceiver
-from usv_avoidance.cpa_tcpa import calculate_cpa_tcpa
-from usv_avoidance.encounter_geometry import calculate_bearing_info
-from usv_avoidance.encounter_classifier import classify_encounter
+from usv_avoidance.collision_assessment import build_assessments
+from usv_avoidance.target_priority import (
+    select_most_critical_assessment,
+)
 from usv_avoidance.target_tracker import TargetTracker
 from usv_avoidance.avoidance import recommend_avoidance_maneuver
 from usv_avoidance.route_manager import RouteManager
@@ -27,10 +28,7 @@ from usv_avoidance.scenario_config import (
     USV_TURN_RATE_DEG_S,
 )
 
-from usv_avoidance.state_machine import (
-    NavigationStateMachine,
-    select_most_critical_assessment,
-)
+from usv_avoidance.state_machine import NavigationStateMachine
 
 SAFETY_RADIUS_M = 50.0
 TIME_HORIZON_S = 300.0
@@ -324,53 +322,24 @@ def main():
         tracker.remove_stale_targets(
             current_time_s=ownship["timestamp"],
         )
-
+        
         active_targets = tracker.get_active_targets(
             current_time_s=ownship["timestamp"],
-        )      
-        
-        assessments = []
+        )     
 
-        for target in active_targets:
-            cpa_result = calculate_cpa_tcpa(
-                ownship=ownship,
-                target=target,
-                safety_radius_m=SAFETY_RADIUS_M,
-                time_horizon_s=TIME_HORIZON_S,
-            )
+        assessments = build_assessments(
+            ownship=ownship,
+            targets=active_targets,
+            return_course_deg=route_manager.get_return_course(),
+            safety_radius_m=SAFETY_RADIUS_M,
+            time_horizon_s=TIME_HORIZON_S,
+        )
 
-            return_course_ownship = dict(ownship)
-            return_course_ownship["cog_deg"] = route_manager.get_return_course()
-            return_course_ownship["heading_deg"] = route_manager.get_return_course()
-
-            return_cpa_result = calculate_cpa_tcpa(
-                ownship=return_course_ownship,
-                target=target,
-                safety_radius_m=SAFETY_RADIUS_M,
-                time_horizon_s=TIME_HORIZON_S,
-            )
-        
-            bearing_info = calculate_bearing_info(
-                ownship=ownship,
-                target=target,
-            )
-        
-            classification = classify_encounter(
-                ownship=ownship,
-                target=target,
-                cpa_result=cpa_result,
-                bearing_info=bearing_info,
-            )
-
-            assessment = {
-                "target": target,
-                "cpa_result": cpa_result,
-                "return_cpa_result": return_cpa_result,
-                "bearing_info": bearing_info,
-                "classification": classification,
-            }
-
-            assessments.append(assessment)
+        for assessment in assessments:
+            target = assessment["target"]
+            cpa_result = assessment["cpa_result"]
+            bearing_info = assessment["bearing_info"]
+            classification = assessment["classification"]
 
             usv_history.append(
                 {
