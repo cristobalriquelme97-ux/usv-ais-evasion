@@ -148,32 +148,43 @@ def run_scenario(
     commanded_course_deg = USV_COG_DEG
     steps: list[dict[str, Any]] = []
 
-    for sentence in source.read_sentences():
-        ais_data = receiver.ingest(sentence)
+    for frame in source.read_frames(
+        default_step_s=STEP_S,
+    ):
+        # El tiempo de simulación queda determinado por el frame,
+        # no por la cantidad de sentencias AIS que contiene.
+        ownship["timestamp"] = frame.timestamp_s
 
-        if ais_data is None:
-            continue
+        # Primero se procesan todas las sentencias correspondientes
+        # al mismo instante de simulación.
+        for sentence in frame.sentences:
+            ais_data = receiver.ingest(sentence)
 
-        if not ais_data.get("valid", False):
-            continue
+            if ais_data is None:
+                continue
 
-        if ais_data.get("lat") is None or ais_data.get("lon") is None:
-            continue
+            if not ais_data.get("valid", False):
+                continue
 
-        updated_target = tracker.update_from_ais(
-            ais_data=ais_data,
-            received_at_s=ownship["timestamp"],
-        )
+            if (
+                ais_data.get("lat") is None
+                or ais_data.get("lon") is None
+            ):
+                continue
 
-        if updated_target is None:
-            continue
+            tracker.update_from_ais(
+                ais_data=ais_data,
+                received_at_s=frame.timestamp_s,
+            )
 
+        # El mantenimiento del tracker se realiza una sola vez
+        # después de actualizar todos los contactos del frame.
         tracker.remove_stale_targets(
-            current_time_s=ownship["timestamp"],
+            current_time_s=frame.timestamp_s,
         )
 
         active_targets = tracker.get_active_targets(
-            current_time_s=ownship["timestamp"],
+            current_time_s=frame.timestamp_s,
         )
 
         assessments = build_assessments(
