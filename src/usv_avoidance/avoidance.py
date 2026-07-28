@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from usv_avoidance.cpa_tcpa import calculate_cpa_tcpa
 from usv_avoidance.encounter_geometry import normalize_angle_360
@@ -115,6 +115,128 @@ def simulate_course_candidate_with_turn_rate(
     }
 
 
+def _merge_simulation_targets(
+    *,
+    primary_target: Mapping[str, Any],
+    targets: Sequence[Mapping[str, Any]] | None,
+) -> list[Mapping[str, Any]]:
+    """
+    Construye la lista de contactos que serán utilizados para
+    validar una maniobra.
+
+    El contacto prioritario siempre ocupa la primera posición.
+    Los contactos repetidos se eliminan mediante su MMSI.
+    """
+
+    merged_targets: list[Mapping[str, Any]] = []
+    seen_identifiers: set[tuple[str, Any]] = set()
+
+    source_targets = [
+        primary_target,
+        *(targets or ()),
+    ]
+
+    for index, target in enumerate(source_targets):
+        mmsi = target.get("mmsi")
+
+        if mmsi is not None:
+            identifier = ("mmsi", mmsi)
+        else:
+            identifier = ("object", id(target))
+
+        if identifier in seen_identifiers:
+            continue
+
+        seen_identifiers.add(identifier)
+        merged_targets.append(target)
+
+    return merged_targets
+
+
+def simulate_course_candidate_against_targets(
+    *,
+    ownship: Mapping[str, Any],
+    primary_target: Mapping[str, Any],
+    targets: Sequence[Mapping[str, Any]] | None,
+    candidate_course_deg: float,
+    safety_radius_m: float,
+    time_horizon_s: float,
+    dt_s: float,
+    turn_rate_deg_s: float,
+) -> dict[str, Any]:
+    """
+    Evalúa un mismo rumbo candidato frente a todos los contactos.
+
+    La trayectoria del USV es la misma para cada evaluación. Cada
+    contacto mantiene su velocidad y rumbo durante la predicción.
+
+    Una maniobra solamente se considera segura cuando respeta el
+    radio de seguridad frente a todos los contactos activos.
+    """
+
+    simulation_targets = _merge_simulation_targets(
+        primary_target=primary_target,
+        targets=targets,
+    )
+
+    per_target_results: list[dict[str, Any]] = []
+
+    for index, target in enumerate(simulation_targets):
+        target_result = simulate_course_candidate_with_turn_rate(
+            ownship=ownship,
+            target=target,
+            candidate_course_deg=candidate_course_deg,
+            safety_radius_m=safety_radius_m,
+            time_horizon_s=time_horizon_s,
+            dt_s=dt_s,
+            turn_rate_deg_s=turn_rate_deg_s,
+        )
+
+        per_target_results.append(
+            {
+                "target_mmsi": target.get("mmsi"),
+                "is_primary": index == 0,
+                **target_result,
+            }
+        )
+
+    if not per_target_results:
+        raise ValueError(
+            "Se requiere al menos un contacto para evaluar "
+            "la maniobra."
+        )
+
+    blocking_result = min(
+        per_target_results,
+        key=lambda item: item["min_distance_m"],
+    )
+
+    unsafe_target_mmsi = [
+        result["target_mmsi"]
+        for result in per_target_results
+        if not result["candidate_is_safe"]
+    ]
+
+    candidate_is_safe = not unsafe_target_mmsi
+
+    return {
+        "candidate_course_deg": candidate_course_deg,
+        "candidate_is_safe": candidate_is_safe,
+        "safety_radius_was_violated": not candidate_is_safe,
+        "global_min_distance_m": blocking_result[
+            "min_distance_m"
+        ],
+        "time_at_global_min_distance_s": blocking_result[
+            "time_at_min_distance_s"
+        ],
+        "blocking_target_mmsi": blocking_result[
+            "target_mmsi"
+        ],
+        "unsafe_target_mmsi": unsafe_target_mmsi,
+        "primary_result": per_target_results[0],
+        "per_target_results": per_target_results,
+    }
+
 def evaluate_course_candidate(
     ownship: Mapping[str, Any],
     target: Mapping[str, Any],
@@ -123,23 +245,30 @@ def evaluate_course_candidate(
     time_horizon_s: float,
     dt_s: float,
     turn_rate_deg_s: float,
+    targets: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
-    Evalúa una maniobra candidata considerando giro progresivo.
+    Evalúa una maniobra candidata considerando giro progresivo
+    y todos los contactos activos.
 
-    Ejemplo:
-    - rumbo actual: 0°
-    - course_change_deg: +30°
-    - rumbo candidato: 30°
-    - el USV llega progresivamente según turn_rate_deg_s.
+    target:
+        Contacto prioritario utilizado para generar la maniobra.
+
+    targets:
+        Todos los contactos que deben utilizarse para comprobar
+        la seguridad global de la maniobra.
     """
 
     current_course = float(ownship["cog_deg"])
-    candidate_course = normalize_angle_360(current_course + course_change_deg)
 
-    simulation = simulate_course_candidate_with_turn_rate(
+    candidate_course = normalize_angle_360(
+        current_course + course_change_deg
+    )
+
+    simulation = simulate_course_candidate_against_targets(
         ownship=ownship,
-        target=target,
+        primary_target=target,
+        targets=targets,
         candidate_course_deg=candidate_course,
         safety_radius_m=safety_radius_m,
         time_horizon_s=time_horizon_s,
@@ -147,19 +276,53 @@ def evaluate_course_candidate(
         turn_rate_deg_s=turn_rate_deg_s,
     )
 
+    primary_result = simulation["primary_result"]
+
     return {
         "course_change_deg": course_change_deg,
         "candidate_course_deg": candidate_course,
-        "projected_cpa_m": simulation["min_distance_m"],
-        "projected_tcpa_s": simulation["time_at_min_distance_s"],
-        "projected_risk": simulation["safety_radius_was_violated"],
-        "candidate_is_safe": simulation["candidate_is_safe"],
-        "final_cpa_m": simulation["final_cpa_m"],
-        "final_tcpa_s": simulation["final_tcpa_s"],
-        "final_risk": simulation["final_risk"],
-        "reached_commanded_course_at_s": simulation["reached_commanded_course_at_s"],
-    }
 
+        # La distancia proyectada representa ahora la menor
+        # distancia respecto de cualquier contacto.
+        "projected_cpa_m": simulation[
+            "global_min_distance_m"
+        ],
+        "projected_tcpa_s": simulation[
+            "time_at_global_min_distance_s"
+        ],
+        "projected_risk": simulation[
+            "safety_radius_was_violated"
+        ],
+        "candidate_is_safe": simulation[
+            "candidate_is_safe"
+        ],
+
+        # Información específica del contacto prioritario.
+        "primary_projected_cpa_m": primary_result[
+            "min_distance_m"
+        ],
+        "primary_projected_tcpa_s": primary_result[
+            "time_at_min_distance_s"
+        ],
+        "final_cpa_m": primary_result["final_cpa_m"],
+        "final_tcpa_s": primary_result["final_tcpa_s"],
+        "final_risk": primary_result["final_risk"],
+
+        # Información multiblanco.
+        "blocking_target_mmsi": simulation[
+            "blocking_target_mmsi"
+        ],
+        "unsafe_target_mmsi": simulation[
+            "unsafe_target_mmsi"
+        ],
+        "per_target_results": simulation[
+            "per_target_results"
+        ],
+
+        "reached_commanded_course_at_s": primary_result[
+            "reached_commanded_course_at_s"
+        ],
+    }
 
 def recommend_avoidance_maneuver(
     ownship: Mapping[str, Any],
@@ -171,6 +334,7 @@ def recommend_avoidance_maneuver(
     dt_s: float = 5.0,
     turn_rate_deg_s: float = 1.0,
     starboard_changes_deg: tuple[float, ...] = (5.0, 10.0, 15.0, 20.0, 25.0),
+    targets: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """
     Recomienda una maniobra evasiva.
@@ -215,6 +379,7 @@ def recommend_avoidance_maneuver(
         result = evaluate_course_candidate(
             ownship=ownship,
             target=target,
+            targets=targets,
             course_change_deg=course_change,
             safety_radius_m=safety_radius_m,
             time_horizon_s=time_horizon_s,
@@ -236,12 +401,17 @@ def recommend_avoidance_maneuver(
                 "projected_cpa_m": result["projected_cpa_m"],
                 "projected_tcpa_s": result["projected_tcpa_s"],
                 "projected_risk": result["projected_risk"],
+                "candidate_is_safe": True,
                 "final_cpa_m": result["final_cpa_m"],
                 "final_tcpa_s": result["final_tcpa_s"],
                 "final_risk": result["final_risk"],
+                "blocking_target_mmsi": result["blocking_target_mmsi"],                
+                "unsafe_target_mmsi": result["unsafe_target_mmsi"],
+                "per_target_results": result["per_target_results"],
                 "reason": (
-                    f"Maniobra segura considerando turn rate: caer a estribor "
-                    f"{result['course_change_deg']:.1f}°."
+                    "Maniobra segura frente a todos los contactos "
+                    "activos considerando la razón de giro: caer a "
+                    f"estribor {result['course_change_deg']:.1f}°."
                 ),
                 "candidate_results": candidate_results,
             }
@@ -262,13 +432,18 @@ def recommend_avoidance_maneuver(
         "projected_cpa_m": best_candidate["projected_cpa_m"],
         "projected_tcpa_s": best_candidate["projected_tcpa_s"],
         "projected_risk": best_candidate["projected_risk"],
+        "candidate_is_safe": False,
         "final_cpa_m": best_candidate["final_cpa_m"],
         "final_tcpa_s": best_candidate["final_tcpa_s"],
         "final_risk": best_candidate["final_risk"],
+        "blocking_target_mmsi": best_candidate["blocking_target_mmsi"],                
+        "unsafe_target_mmsi": best_candidate["unsafe_target_mmsi"],
+        "per_target_results": best_candidate["per_target_results"],
         "reason": (
-            "Ninguna maniobra candidata eliminó completamente el riesgo "
-            "considerando turn rate; se selecciona la que maximiza la "
-            "distancia mínima proyectada."
+            "Ninguna maniobra candidata respetó el radio de "
+            "seguridad frente a todos los contactos activos; "
+            "se selecciona la alternativa que maximiza la menor "
+            "distancia global proyectada."
         ),
         "candidate_results": candidate_results,
     }

@@ -480,6 +480,7 @@ def main():
             avoidance_decision = recommend_avoidance_maneuver(
                 ownship=ownship,
                 target=critical_assessment["target"],
+                targets=active_targets,
                 classification=critical_assessment["classification"],
                 state_info=state_info,
                 safety_radius_m=SAFETY_RADIUS_M,
