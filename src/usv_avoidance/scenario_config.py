@@ -40,7 +40,9 @@ USV_SOG_KN = 6.0
 USV_COG_DEG = 0.0
 USV_HEADING_DEG = 0.0
 USV_TURN_RATE_DEG_S = 1.0
-
+# Tiempo durante el cual el algoritmo observa y actualiza
+# la situación antes de ordenar la primera maniobra evasiva.
+MANEUVER_DECISION_DELAY_S = 40.0
 
 # ============================================================
 # CONFIGURACIÓN GENERAL DEL ESCENARIO

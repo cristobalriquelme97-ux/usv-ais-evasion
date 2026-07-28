@@ -37,6 +37,26 @@ class StateMachineConfig:
     clear_samples_required: int = 3
     min_distance_increase_m: float = 1.0
 
+    # Tiempo mínimo de observación desde la primera detección
+    # de riesgo hasta la entrada a AVOIDING_TARGET.
+    maneuver_decision_delay_s: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.clear_samples_required <= 0:
+            raise ValueError(
+                "clear_samples_required debe ser mayor que cero."
+            )
+
+        if self.min_distance_increase_m < 0.0:
+            raise ValueError(
+                "min_distance_increase_m no puede ser negativo."
+            )
+
+        if self.maneuver_decision_delay_s < 0.0:
+            raise ValueError(
+                "maneuver_decision_delay_s no puede ser negativo."
+            )
+
 
 @dataclass
 class NavigationStateMachine:
@@ -59,11 +79,13 @@ class NavigationStateMachine:
     active_target_mmsi: int | None = None
     clear_counter: int = 0
     last_distance_by_mmsi: dict[int, float] = field(default_factory=dict)
+    risk_detected_at_s: float | None = None
 
     def update(
         self,
         assessment: Mapping[str, Any] | None,
         route_recovered: bool = False,
+        current_time_s: float = 0.0,
     ) -> dict[str, Any]:
         """
         Actualiza el estado del algoritmo.
@@ -83,9 +105,16 @@ class NavigationStateMachine:
         """
 
         previous_state = self.state
+        current_time_s = float(current_time_s)
+
+        decision_delay_s = float(
+            self.config.maneuver_decision_delay_s
+        )
 
         # Caso sin blancos activos.
         if assessment is None:
+            self.risk_detected_at_s = None
+
             reason = "No hay blancos activos."
 
             if self.state in (
@@ -102,7 +131,11 @@ class NavigationStateMachine:
                     self.state = NavigationState.RETURNING_TO_TRACK
                     reason = "Sin blancos activos; retornar al track."
 
-            return self._build_result(previous_state, reason)
+            return self._build_result(
+                previous_state,
+                reason,
+                current_time_s,
+            )
 
         target = assessment["target"]
         cpa_result = assessment["cpa_result"]
@@ -143,38 +176,113 @@ class NavigationStateMachine:
         reason = "Estado mantenido."
 
         if self.state == NavigationState.TRACKING_ROUTE:
-            if risk and should_maneuver:
-                self.state = NavigationState.AVOIDING_TARGET
+            if risk:
                 self.active_target_mmsi = target_mmsi
                 self.clear_counter = 0
-                reason = "Riesgo detectado y el USV debe maniobrar."
-            elif risk:
-                self.state = NavigationState.ASSESSING_TARGET
-                self.active_target_mmsi = target_mmsi
-                self.clear_counter = 0
-                reason = "Riesgo detectado; evaluando rol del USV."
+                self.risk_detected_at_s = current_time_s
+
+                if (
+                    should_maneuver
+                    and decision_delay_s <= 0.0
+                ):
+                    self.state = NavigationState.AVOIDING_TARGET
+
+                    reason = (
+                        "Riesgo detectado y el USV debe maniobrar."
+                    )
+                else:
+                    self.state = NavigationState.ASSESSING_TARGET
+
+                    if should_maneuver:
+                        reason = (
+                            "Riesgo detectado; comienza el periodo "
+                            "de observación previo a la maniobra."
+                        )
+                    else:
+                        reason = (
+                            "Riesgo detectado; evaluando el rol "
+                            "del USV."
+                        )
             else:
+                self.risk_detected_at_s = None
                 reason = "Sin riesgo; navegación normal."
 
         elif self.state == NavigationState.ASSESSING_TARGET:
-            if risk and should_maneuver:
-                self.state = NavigationState.AVOIDING_TARGET
-                self.active_target_mmsi = target_mmsi
-                self.clear_counter = 0
-                reason = "El encuentro requiere maniobra evasiva."
-            elif not risk:
+            if not risk:
                 self.state = NavigationState.TRACKING_ROUTE
                 self.active_target_mmsi = None
                 self.clear_counter = 0
-                reason = "El riesgo desapareció durante la evaluación."
+                self.risk_detected_at_s = None
+
+                reason = (
+                    "El riesgo desapareció durante la evaluación."
+                )
+
+            elif risk and should_maneuver:
+                # El contacto prioritario puede cambiar durante el
+                # periodo de observación.
+                self.active_target_mmsi = target_mmsi
+
+                if self.risk_detected_at_s is None:
+                    self.risk_detected_at_s = current_time_s
+
+                observation_elapsed_s = max(
+                    0.0,
+                    current_time_s - self.risk_detected_at_s,
+                )
+
+                delay_remaining_s = max(
+                    0.0,
+                    decision_delay_s - observation_elapsed_s,
+                )
+
+                if observation_elapsed_s >= decision_delay_s:
+                    self.state = NavigationState.AVOIDING_TARGET
+                    self.clear_counter = 0
+
+                    reason = (
+                        "Finalizó el periodo de observación; "
+                        "corresponde ejecutar la maniobra evasiva."
+                    )
+                else:
+                    reason = (
+                        "Observando la evolución del encuentro antes "
+                        "de maniobrar. Tiempo restante: "
+                        f"{delay_remaining_s:.1f} s."
+                    )
+
             else:
-                reason = "Se mantiene evaluación del blanco."
+                self.active_target_mmsi = target_mmsi
+
+                reason = (
+                    "Se mantiene evaluación; el USV no tiene "
+                    "actualmente obligación de maniobrar."
+                )
 
         elif self.state == NavigationState.AVOIDING_TARGET:
             if target_clear:
                 self.state = NavigationState.CLEARING_TARGET
                 self.clear_counter = 1
+
                 reason = "El blanco comienza a quedar claro."
+
+            elif risk and should_maneuver:
+                if target_mmsi != self.active_target_mmsi:
+                    previous_target_mmsi = (
+                        self.active_target_mmsi
+                    )
+
+                    self.active_target_mmsi = target_mmsi
+
+                    reason = (
+                        "Cambió el contacto prioritario durante la "
+                        "evasión: "
+                        f"{previous_target_mmsi} → "
+                        f"{target_mmsi}."
+                    )
+                else:
+                    reason = "Se mantiene estado evasivo."
+
             else:
                 reason = "Se mantiene estado evasivo."
 
@@ -221,7 +329,11 @@ class NavigationStateMachine:
             else:
                 reason = "Retornando al track o waypoint."
 
-        return self._build_result(previous_state, reason)
+        return self._build_result(
+            previous_state,
+            reason,
+            current_time_s,
+        )
 
     def _is_distance_increasing(
         self,
@@ -248,10 +360,28 @@ class NavigationStateMachine:
         self,
         previous_state: NavigationState,
         reason: str,
+        current_time_s: float,
     ) -> dict[str, Any]:
         """
-        Construye una salida estándar para imprimir o usar en otros módulos.
+        Construye una salida estándar para imprimir o utilizar
+        en otros módulos.
         """
+
+        observation_elapsed_s = None
+        decision_delay_remaining_s = None
+
+        if self.risk_detected_at_s is not None:
+            observation_elapsed_s = max(
+                0.0,
+                float(current_time_s)
+                - self.risk_detected_at_s,
+            )
+
+            decision_delay_remaining_s = max(
+                0.0,
+                self.config.maneuver_decision_delay_s
+                - observation_elapsed_s,
+            )
 
         return {
             "previous_state": previous_state.value,
@@ -259,6 +389,14 @@ class NavigationStateMachine:
             "active_target_mmsi": self.active_target_mmsi,
             "clear_counter": self.clear_counter,
             "reason": reason,
+            "risk_detected_at_s": self.risk_detected_at_s,
+            "observation_elapsed_s": observation_elapsed_s,
+            "maneuver_decision_delay_s": (
+                self.config.maneuver_decision_delay_s
+            ),
+            "decision_delay_remaining_s": (
+                decision_delay_remaining_s
+            ),
         }
 
 

@@ -16,8 +16,16 @@ from usv_avoidance.motion_model import advance_vessel_state_with_course_command
 from usv_avoidance.nmea_file_source import NmeaFileSource
 from usv_avoidance.route_manager import RouteManager
 from usv_avoidance.simulation_metrics import SimulationMetrics
-from usv_avoidance.state_machine import NavigationStateMachine
+from usv_avoidance.state_machine import (
+    NavigationStateMachine,
+    StateMachineConfig,
+)
 from usv_avoidance.target_tracker import TargetTracker
+from usv_avoidance.replanning import (
+    decorate_avoidance_decision,
+    determine_replanning_need,
+    evaluate_active_evasive_course,
+)
 
 from usv_avoidance.scenario_config import (
     DELAY_S,
@@ -31,6 +39,7 @@ from usv_avoidance.scenario_config import (
     USV_LON0,
     USV_SOG_KN,
     USV_TURN_RATE_DEG_S,
+    MANEUVER_DECISION_DELAY_S,
 )
 
 
@@ -104,6 +113,9 @@ def resolve_scenario_file(scenario_name: str | None = None) -> Path:
 def run_scenario(
     scenario_name: str | None = None,
     save_results: bool = False,
+    maneuver_decision_delay_s: float = (
+        MANEUVER_DECISION_DELAY_S
+    ),
 ) -> dict[str, Any]:
     """
     Runs a scenario and returns structured data for the dashboard.
@@ -122,7 +134,13 @@ def run_scenario(
 
     receiver = AisNmeaReceiver(strict_checksum=True)
     tracker = TargetTracker(max_age_s=TRACKER_MAX_AGE_S)
-    state_machine = NavigationStateMachine()
+    state_machine = NavigationStateMachine(
+        config=StateMachineConfig(
+            maneuver_decision_delay_s=(
+                maneuver_decision_delay_s
+            ),
+        )
+    )
 
     route_manager = RouteManager(
         original_course_deg=USV_COG_DEG,
@@ -147,6 +165,7 @@ def run_scenario(
     active_evasive_course_deg = None
     active_avoidance_decision = None
     commanded_course_deg = USV_COG_DEG
+    replan_count = 0
     steps: list[dict[str, Any]] = []
 
     for frame in source.read_frames(
@@ -205,33 +224,111 @@ def run_scenario(
         state_info = state_machine.update(
             assessment=critical_assessment,
             route_recovered=route_recovered,
+            current_time_s=frame.timestamp_s,
         )
 
         current_state = state_info["current_state"]
         avoidance_decision = None
 
-        if (
-            critical_assessment is not None
-            and current_state == "AVOIDING_TARGET"
-            and active_evasive_course_deg is None
-        ):
-            avoidance_decision = recommend_avoidance_maneuver(
+        # Se comprueba si el rumbo evasivo actualmente ordenado
+        # sigue siendo seguro frente a todos los contactos activos.
+        active_course_evaluation = (
+            evaluate_active_evasive_course(
                 ownship=ownship,
-                target=critical_assessment["target"],
+                critical_assessment=critical_assessment,
                 targets=active_targets,
-                classification=critical_assessment["classification"],
-                state_info=state_info,
+                active_evasive_course_deg=(
+                    active_evasive_course_deg
+                ),
                 safety_radius_m=SAFETY_RADIUS_M,
                 time_horizon_s=TIME_HORIZON_S,
                 dt_s=STEP_S,
-                turn_rate_deg_s=USV_TURN_RATE_DEG_S,
+                turn_rate_deg_s=(
+                    USV_TURN_RATE_DEG_S
+                ),
+            )
+        )
+
+        # Se determina si corresponde crear el primer plan,
+        # cambiarlo por un nuevo contacto prioritario o recalcularlo
+        # porque el rumbo activo dejó de ser seguro.
+        replanning_info = determine_replanning_need(
+            current_state=current_state,
+            critical_assessment=critical_assessment,
+            active_evasive_course_deg=(
+                active_evasive_course_deg
+            ),
+            active_avoidance_decision=(
+                active_avoidance_decision
+            ),
+            active_course_evaluation=(
+                active_course_evaluation
+            ),
+        )
+
+        if (
+            replanning_info["replan_required"]
+            and critical_assessment is not None
+        ):
+            avoidance_decision = (
+                recommend_avoidance_maneuver(
+                    ownship=ownship,
+                    target=critical_assessment[
+                        "target"
+                    ],
+                    targets=active_targets,
+                    classification=(
+                        critical_assessment[
+                            "classification"
+                        ]
+                    ),
+                    state_info=state_info,
+                    safety_radius_m=SAFETY_RADIUS_M,
+                    time_horizon_s=TIME_HORIZON_S,
+                    dt_s=STEP_S,
+                    turn_rate_deg_s=(
+                        USV_TURN_RATE_DEG_S
+                    ),
+                )
             )
 
-            if avoidance_decision["maneuver_required"]:
-                active_evasive_course_deg = avoidance_decision[
-                    "recommended_course_deg"
-                ]
-                active_avoidance_decision = avoidance_decision
+            if avoidance_decision[
+                "maneuver_required"
+            ]:
+                # El plan inicial no se contabiliza como
+                # replanificación. Solo se cuentan los cambios
+                # efectuados después de la primera decisión.
+                if (
+                    replanning_info["trigger"]
+                    != "initial_plan"
+                ):
+                    replan_count += 1
+
+                avoidance_decision = (
+                    decorate_avoidance_decision(
+                        avoidance_decision,
+                        critical_assessment=(
+                            critical_assessment
+                        ),
+                        current_time_s=(
+                            frame.timestamp_s
+                        ),
+                        replanning_info=(
+                            replanning_info
+                        ),
+                        replan_count=replan_count,
+                    )
+                )
+
+                active_evasive_course_deg = (
+                    avoidance_decision[
+                        "recommended_course_deg"
+                    ]
+                )
+
+                active_avoidance_decision = (
+                    avoidance_decision
+                )
 
         if current_state == "AVOIDING_TARGET":
             commanded_course_deg = (
@@ -274,7 +371,15 @@ def run_scenario(
             state_info=state_info,
             commanded_course_deg=commanded_course_deg,
             route_recovered=route_recovered,
-            avoidance_decision=active_avoidance_decision or avoidance_decision,
+            avoidance_decision=(
+                active_avoidance_decision
+                or avoidance_decision
+            ),
+            replanning_info=replanning_info,
+            active_course_evaluation=(
+                active_course_evaluation
+            ),
+            replan_count=replan_count,
         )
         steps.append(step)
 
@@ -303,6 +408,9 @@ def run_scenario(
             "time_horizon_s": TIME_HORIZON_S,
             "step_s": STEP_S,
             "turn_rate_deg_s": USV_TURN_RATE_DEG_S,
+            "maneuver_decision_delay_s": (
+                maneuver_decision_delay_s
+            ),
         },
         "steps": steps,
         "summary": metrics.build_summary(),
@@ -318,6 +426,9 @@ def _build_step(
     commanded_course_deg: float,
     route_recovered: bool,
     avoidance_decision: Mapping[str, Any] | None,
+    replanning_info: Mapping[str, Any],
+    active_course_evaluation: Mapping[str, Any] | None,
+    replan_count: int,
 ) -> dict[str, Any]:
     ownship_x_m, ownship_y_m = latlon_to_xy_m(
         lat=float(ownship["lat"]),
@@ -379,6 +490,32 @@ def _build_step(
     if critical_assessment is not None:
         critical_mmsi = critical_assessment["target"].get("mmsi")
 
+    active_course_status = None
+
+    if active_course_evaluation is not None:
+        active_course_status = {
+            "candidate_is_safe": (
+                active_course_evaluation[
+                    "candidate_is_safe"
+                ]
+            ),
+            "global_min_distance_m": (
+                active_course_evaluation[
+                    "global_min_distance_m"
+                ]
+            ),
+            "blocking_target_mmsi": (
+                active_course_evaluation[
+                    "blocking_target_mmsi"
+                ]
+            ),
+            "unsafe_target_mmsi": list(
+                active_course_evaluation[
+                    "unsafe_target_mmsi"
+                ]
+            ),
+        }    
+
     return {
         "time_s": ownship.get("timestamp", 0.0),
         "ownship": {
@@ -392,12 +529,15 @@ def _build_step(
         },
         "targets": targets,
         "critical_target_mmsi": critical_mmsi,
-        "state": state_info,
+        "state": state_info,    
         "commanded_course_deg": commanded_course_deg,
         "route_recovered": route_recovered,
         "avoidance_decision": dict(avoidance_decision)
         if avoidance_decision is not None
-        else None,
+        else None,   
+        "replanning": dict(replanning_info),
+        "replan_count": replan_count,
+        "active_course_evaluation": active_course_status,
     }
 
 

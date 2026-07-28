@@ -15,7 +15,11 @@ from usv_avoidance.motion_model import (
     advance_vessel_state,
     advance_vessel_state_with_course_command,
 )
-
+from usv_avoidance.replanning import (
+    decorate_avoidance_decision,
+    determine_replanning_need,
+    evaluate_active_evasive_course,
+)
 from usv_avoidance.scenario_config import (
     OUTPUT_FILE,
     USV_LAT0,
@@ -26,9 +30,13 @@ from usv_avoidance.scenario_config import (
     STEP_S,
     DELAY_S,
     USV_TURN_RATE_DEG_S,
+    MANEUVER_DECISION_DELAY_S,
 )
 
-from usv_avoidance.state_machine import NavigationStateMachine
+from usv_avoidance.state_machine import (
+    NavigationStateMachine,
+    StateMachineConfig,
+)
 
 SAFETY_RADIUS_M = 50.0
 TIME_HORIZON_S = 300.0
@@ -70,6 +78,16 @@ def parse_args():
     "--visualize",
     action="store_true",
     help="Muestra una visualización del escenario procesado por main.py.",
+    )
+
+    parser.add_argument(
+        "--decision-delay-s",
+        type=float,
+        default=MANEUVER_DECISION_DELAY_S,
+        help=(
+            "Tiempo de observación antes de ordenar la primera "
+            "maniobra evasiva."
+        ),
     )
 
     return parser.parse_args()
@@ -273,7 +291,11 @@ def main():
 
     receiver = AisNmeaReceiver(strict_checksum=True)
     tracker = TargetTracker(max_age_s=TRACKER_MAX_AGE_S) # Si un blanco no se actualiza en 60 segundos, se considera "stale" y se elimina.
-    state_machine = NavigationStateMachine() # Se encarga de evaluar la situación de navegación y decidir si el USV debe maniobrar.
+    state_machine = NavigationStateMachine( # Se encarga de evaluar la situación de navegación y decidir si el USV debe maniobrar.
+        config=StateMachineConfig(
+            maneuver_decision_delay_s=args.decision_delay_s,
+        )
+    )
 
     ownship = {
         "lat": USV_LAT0,
@@ -295,6 +317,7 @@ def main():
     active_evasive_course_deg = None
     active_avoidance_decision = None
     commanded_course_deg = USV_COG_DEG #Rumbo inicial del USV, que se puede modificar si el algoritmo decide maniobrar.
+    replan_count = 0 #Cuenta solamente los cambios posteriores al plan inicial 
 
     for frame in source.read_frames(
         default_step_s=STEP_S,
@@ -457,6 +480,7 @@ def main():
         state_info = state_machine.update(
             assessment=critical_assessment,
             route_recovered=route_recovered,
+            current_time_s=frame.timestamp_s,
         )
 
         current_state = state_info["current_state"]
@@ -469,19 +493,68 @@ def main():
             f"Motivo: {state_info['reason']}"
         )
 
+        delay_remaining_s = state_info.get(
+            "decision_delay_remaining_s"
+        )
+
+        if (
+            current_state == "ASSESSING_TARGET"
+            and delay_remaining_s is not None
+        ):
+            print(
+                "Observación previa a maniobra | "
+                f"Tiempo restante: {delay_remaining_s:.1f} s"
+            )
+
 # ------------------------------------------------------------
-# 1. Calcular nueva decisión evasiva solo al iniciar evasión
+# 1. Evaluar el rumbo evasivo actualmente activo
+# ------------------------------------------------------------
+        active_course_evaluation = (
+            evaluate_active_evasive_course(
+                ownship=ownship,
+                critical_assessment=critical_assessment,
+                targets=active_targets,
+                active_evasive_course_deg=(
+                    active_evasive_course_deg
+                ),
+                safety_radius_m=SAFETY_RADIUS_M,
+                time_horizon_s=TIME_HORIZON_S,
+                dt_s=STEP_S,
+                turn_rate_deg_s=USV_TURN_RATE_DEG_S,
+            )
+        )
+
+# ------------------------------------------------------------
+# 1.2 Determinar si se necesita crear o recalcular el plan
+# ------------------------------------------------------------
+        replanning_info = determine_replanning_need(
+            current_state=current_state,
+            critical_assessment=critical_assessment,
+            active_evasive_course_deg=(
+                active_evasive_course_deg
+            ),
+            active_avoidance_decision=(
+                active_avoidance_decision
+            ),
+            active_course_evaluation=(
+                active_course_evaluation
+            ),
+        )
+
+# ------------------------------------------------------------
+# 1.3 Crear el plan inicial o recalcular la maniobra
 # ------------------------------------------------------------
         if (
-            critical_assessment is not None
-            and current_state == "AVOIDING_TARGET"
-            and active_evasive_course_deg is None
+            replanning_info["replan_required"]
+            and critical_assessment is not None
         ):
             avoidance_decision = recommend_avoidance_maneuver(
                 ownship=ownship,
                 target=critical_assessment["target"],
                 targets=active_targets,
-                classification=critical_assessment["classification"],
+                classification=critical_assessment[
+                    "classification"
+                ],
                 state_info=state_info,
                 safety_radius_m=SAFETY_RADIUS_M,
                 time_horizon_s=TIME_HORIZON_S,
@@ -490,22 +563,93 @@ def main():
             )
 
             if avoidance_decision["maneuver_required"]:
-                active_evasive_course_deg = avoidance_decision["recommended_course_deg"]
-                active_avoidance_decision = avoidance_decision
+                # El plan inicial no se cuenta como replanificación.
+                if (
+                    replanning_info["trigger"]
+                    != "initial_plan"
+                ):
+                    replan_count += 1
+
+                avoidance_decision = (
+                    decorate_avoidance_decision(
+                        avoidance_decision,
+                        critical_assessment=(
+                            critical_assessment
+                        ),
+                        current_time_s=frame.timestamp_s,
+                        replanning_info=replanning_info,
+                        replan_count=replan_count,
+                    )
+                )
+
+                active_evasive_course_deg = (
+                    avoidance_decision[
+                        "recommended_course_deg"
+                    ]
+                )
+
+                active_avoidance_decision = (
+                    avoidance_decision
+                )
 
 # ------------------------------------------------------------
-# 2. Imprimir decisión evasiva solo si fue calculada ahora
+# 2. Mostrar una planificación nueva o una replanificación
 # ------------------------------------------------------------
         if avoidance_decision is not None:
             print(
-                f"Decisión evasiva: {avoidance_decision['action']} | "
-                f"Rumbo recomendado: {avoidance_decision['recommended_course_deg']:.1f}° | "
-                f"Caída: {avoidance_decision['course_change_deg']:.1f}° | "
-                f"Motivo: {avoidance_decision['reason']}"
+                "PLANIFICACIÓN EVASIVA | "
+                f"Disparador: "
+                f"{avoidance_decision['plan_trigger']} | "
+                f"MMSI planificado: "
+                f"{avoidance_decision['priority_target_mmsi']} | "
+                f"Rumbo recomendado: "
+                f"{avoidance_decision['recommended_course_deg']:.1f}° | "
+                f"Caída: "
+                f"{avoidance_decision['course_change_deg']:.1f}° | "
+                f"Replanificaciones: "
+                f"{avoidance_decision['replan_count']}"
+            )
+
+            print(
+                "Motivo de planificación: "
+                f"{avoidance_decision['plan_reason']}"
+            )
+
+            print(
+                "Resultado de maniobra: "
+                f"{avoidance_decision['reason']}"
             )
 
 # ------------------------------------------------------------
-# 3. Definir orden de gobierno según estado del algoritmo
+# 3. Mostrar la evaluación del rumbo evasivo activo
+# ------------------------------------------------------------
+        if active_course_evaluation is not None:
+            print(
+                "EVALUACIÓN DEL RUMBO ACTIVO | "
+                f"Seguro: "
+                f"{active_course_evaluation['candidate_is_safe']} | "
+                f"Distancia mínima global: "
+                f"{active_course_evaluation['global_min_distance_m']:.2f} m | "
+                f"Contacto limitante: "
+                f"{active_course_evaluation['blocking_target_mmsi']}"
+            )
+
+            unsafe_target_mmsi = (
+                active_course_evaluation[
+                    "unsafe_target_mmsi"
+                ]
+            )
+
+            if unsafe_target_mmsi:
+                print(
+                    "Contactos que vulneran el radio de seguridad: "
+                    f"{unsafe_target_mmsi}"
+                )
+
+
+
+# ------------------------------------------------------------
+# 4. Definir orden de gobierno según estado del algoritmo
 # ------------------------------------------------------------
         if current_state == "AVOIDING_TARGET":
             if active_evasive_course_deg is not None:
@@ -535,7 +679,9 @@ def main():
         elif current_state == "RETURNING_TO_TRACK":
             active_evasive_course_deg = None
             active_avoidance_decision = None
+            replan_count = 0 # Se reinicia el contador de replanificaciones al volver a la ruta original.
             commanded_course_deg = route_manager.get_return_course()
+            
 
             print(
                 f"Orden de gobierno: RETORNO A RUTA | "
@@ -545,6 +691,7 @@ def main():
         elif current_state == "TRACKING_ROUTE":
             active_evasive_course_deg = None
             active_avoidance_decision = None
+            replan_count = 0 # Se reinicia el contador de replanificaciones al volver a la ruta original.
             commanded_course_deg = USV_COG_DEG
 
             print(
