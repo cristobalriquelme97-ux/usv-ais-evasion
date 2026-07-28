@@ -310,13 +310,23 @@ body {
     border-top: 1px solid var(--border);
 }
 
-.targets-table tbody tr:first-child {
+.targets-table tbody tr.priority-target-row {
     background: rgba(248, 113, 113, 0.08);
 }
 
-.targets-table tbody tr:first-child td:first-child {
+.targets-table tbody tr.priority-target-row td:first-child {
     color: var(--red);
     font-weight: 800;
+}
+
+.priority-label {
+    display: inline-block;
+    margin-left: 8px;
+    color: var(--red);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .priority-badge {

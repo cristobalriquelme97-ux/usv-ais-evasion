@@ -599,25 +599,25 @@ def main():
             print(
                 "PLANIFICACIÓN EVASIVA | "
                 f"Disparador: "
-                f"{avoidance_decision['plan_trigger']} | "
+                f"{avoidance_decision.get('plan_trigger', 'sin_nuevo_plan')} | "
                 f"MMSI planificado: "
-                f"{avoidance_decision['priority_target_mmsi']} | "
+                f"{avoidance_decision.get('priority_target_mmsi', 'desconocido')} | "
                 f"Rumbo recomendado: "
-                f"{avoidance_decision['recommended_course_deg']:.1f}° | "
+                f"{avoidance_decision.get('recommended_course_deg', 0):.1f}° | "
                 f"Caída: "
-                f"{avoidance_decision['course_change_deg']:.1f}° | "
+                f"{avoidance_decision.get('course_change_deg', 0):.1f}° | "
                 f"Replanificaciones: "
-                f"{avoidance_decision['replan_count']}"
+                f"{avoidance_decision.get('replan_count', 0)}"
             )
 
             print(
                 "Motivo de planificación: "
-                f"{avoidance_decision['plan_reason']}"
+                f"{avoidance_decision.get('plan_reason', 'desconocido')}"
             )
 
             print(
                 "Resultado de maniobra: "
-                f"{avoidance_decision['reason']}"
+                f"{avoidance_decision.get('reason', 'desconocido')}"
             )
 
 # ------------------------------------------------------------
@@ -627,11 +627,11 @@ def main():
             print(
                 "EVALUACIÓN DEL RUMBO ACTIVO | "
                 f"Seguro: "
-                f"{active_course_evaluation['candidate_is_safe']} | "
+                f"{active_course_evaluation.get('candidate_is_safe', False)} | "
                 f"Distancia mínima global: "
-                f"{active_course_evaluation['global_min_distance_m']:.2f} m | "
+                f"{active_course_evaluation.get('global_min_distance_m', 0):.2f} m | "
                 f"Contacto limitante: "
-                f"{active_course_evaluation['blocking_target_mmsi']}"
+                f"{active_course_evaluation.get('blocking_target_mmsi', 'desconocido')}"
             )
 
             unsafe_target_mmsi = (

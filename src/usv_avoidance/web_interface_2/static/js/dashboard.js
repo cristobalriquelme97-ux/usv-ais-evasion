@@ -127,21 +127,62 @@ function render() {
 }
 
 function renderTargets(step) {
-    if (!step.targets.length) {
-        els.targetsTable.innerHTML = `<tr><td colspan="5">Sin blancos activos</td></tr>`;
+    const orderedTargets = [...step.targets].sort(
+        (first, second) => (
+            Number(first.priority ?? Infinity)
+            - Number(second.priority ?? Infinity)
+        )
+    );
+
+    if (!orderedTargets.length) {
+        els.targetsTable.innerHTML = `
+            <tr>
+                <td colspan="5">
+                    Sin contactos AIS activos
+                </td>
+            </tr>
+        `;
         return;
     }
 
-    els.targetsTable.innerHTML = step.targets
-        .map((target) => `
-            <tr>
-                <td>${target.mmsi}</td>
-                <td class="risk-${Boolean(target.risk)}">${target.risk ? "Si" : "No"}</td>
-                <td>${formatMeters(target.cpa_m)}</td>
-                <td>${formatSeconds(target.tcpa_s)}</td>
-                <td>${target.priority}</td>
-            </tr>
-        `)
+    els.targetsTable.innerHTML = orderedTargets
+        .map((target) => {
+            const isPriority = (
+                target.mmsi === step.critical_target_mmsi
+            );
+
+            return `
+                <tr class="${
+                    isPriority
+                        ? "priority-target-row"
+                        : ""
+                }">
+                    <td>${target.mmsi}</td>
+
+                    <td class="risk-${Boolean(target.risk)}">
+                        ${target.risk ? "Sí" : "No"}
+                    </td>
+
+                    <td>${formatMeters(target.cpa_m)}</td>
+
+                    <td>${formatSeconds(target.tcpa_s)}</td>
+
+                    <td>
+                        <span class="priority-badge">
+                            ${target.priority}
+                        </span>
+
+                        ${
+                            isPriority
+                                ? `<span class="priority-label">
+                                       Prioritario
+                                   </span>`
+                                : ""
+                        }
+                    </td>
+                </tr>
+            `;
+        })
         .join("");
 }
 

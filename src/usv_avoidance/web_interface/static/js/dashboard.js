@@ -81,26 +81,43 @@ function calculateHeadingDifference(currentHeading, recommendedHeading) {
 }
 
 
-function renderTargets(targets) {
+function renderTargets(targets, priorityMmsi) {
     const tableBody = document.getElementById("targetsTableBody");
     const targetCount = document.getElementById("targetCount");
 
-    tableBody.innerHTML = "";
-    targetCount.textContent = targets.length;
+    const orderedTargets = [...targets].sort(
+        (first, second) => (
+            Number(first.priority ?? Infinity)
+            - Number(second.priority ?? Infinity)
+        )
+    );
 
-    if (targets.length === 0) {
+    tableBody.innerHTML = "";
+    targetCount.textContent = orderedTargets.length;
+
+    if (orderedTargets.length === 0) {
         tableBody.innerHTML = `
             <tr>
                 <td colspan="2">
-                    No se detectan blancos AIS
+                    No se detectan contactos AIS
                 </td>
             </tr>
         `;
         return;
     }
 
-    targets.forEach((target) => {
+    orderedTargets.forEach((target) => {
         const row = document.createElement("tr");
+
+        const isPriority = (
+            priorityMmsi !== null
+            && priorityMmsi !== undefined
+            && target.mmsi === priorityMmsi
+        );
+
+        if (isPriority) {
+            row.classList.add("priority-target-row");
+        }
 
         row.innerHTML = `
             <td>${target.mmsi}</td>
@@ -108,6 +125,14 @@ function renderTargets(targets) {
                 <span class="priority-badge">
                     ${target.priority}
                 </span>
+
+                ${
+                    isPriority
+                        ? `<span class="priority-label">
+                               Prioritario
+                           </span>`
+                        : ""
+                }
             </td>
         `;
 
@@ -191,7 +216,10 @@ function updateDashboard(data) {
     document.getElementById("vesselIcon").style.transform =
         `rotate(${ownShip.heading_deg}deg)`;
 
-    renderTargets(data.targets);
+    renderTargets(
+    data.targets,
+    target.mmsi
+    );
 
     document.getElementById("lastUpdate").textContent =
         `Última actualización: ${new Date().toLocaleTimeString("es-CL")}`;
