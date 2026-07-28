@@ -1,3 +1,5 @@
+#Ejectuar un escenario de simulación y devolver los resultados en un formato estructurado para la interfaz web.
+
 from __future__ import annotations
 
 import json
@@ -116,12 +118,18 @@ def run_scenario(
     maneuver_decision_delay_s: float = (
         MANEUVER_DECISION_DELAY_S
     ),
+    playback_delay_s: float = 0.0,
 ) -> dict[str, Any]:
     """
-    Runs a scenario and returns structured data for the dashboard.
+    Ejecuta el motor principal de simulación del algoritmo.
 
-    This mirrors main.py, but does not print to the console. Each step includes
-    the ownship state, active targets, selected state, command, and decision.
+    Procesa un escenario AIS/NMEA, actualiza los contactos,
+    evalúa el riesgo de colisión, administra la máquina de estados,
+    calcula las maniobras evasivas y registra las métricas.
+
+    No imprime información directamente en la terminal. Devuelve
+    los resultados estructurados para que puedan ser utilizados por
+    main.py, la interfaz web, las pruebas o la ejecución batch.
     """
 
     scenario_file = resolve_scenario_file(scenario_name)
@@ -129,7 +137,7 @@ def run_scenario(
 
     source = NmeaFileSource(
         file_path=scenario_file,
-        delay_s=0.0 if not save_results else DELAY_S,
+        delay_s=max(0.0, playback_delay_s),
     )
 
     receiver = AisNmeaReceiver(strict_checksum=True)
@@ -344,11 +352,13 @@ def run_scenario(
         elif current_state == "RETURNING_TO_TRACK":
             active_evasive_course_deg = None
             active_avoidance_decision = None
+            replan_count = 0
             commanded_course_deg = route_manager.get_return_course()
 
         elif current_state == "TRACKING_ROUTE":
             active_evasive_course_deg = None
             active_avoidance_decision = None
+            replan_count = 0
             commanded_course_deg = USV_COG_DEG
 
         elif current_state == "ASSESSING_TARGET":
@@ -417,6 +427,7 @@ def run_scenario(
             "maneuver_decision_delay_s": (
                 maneuver_decision_delay_s
             ),
+            "playback_delay_s": max(0.0, playback_delay_s),
         },
         "steps": steps,
         "summary": metrics.build_summary(),

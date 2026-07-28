@@ -1,83 +1,49 @@
+from __future__ import annotations
+import math
 import argparse
-from pathlib import Path
+from typing import Any
 
-from usv_avoidance.nmea_file_source import NmeaFileSource
-from usv_avoidance.ais_adapter import AisNmeaReceiver
-from usv_avoidance.collision_assessment import build_assessments
-from usv_avoidance.target_priority import (
-    select_most_critical_assessment,
-)
-from usv_avoidance.target_tracker import TargetTracker
-from usv_avoidance.avoidance import recommend_avoidance_maneuver
-from usv_avoidance.route_manager import RouteManager
-from usv_avoidance.simulation_metrics import SimulationMetrics
-from usv_avoidance.motion_model import (
-    advance_vessel_state,
-    advance_vessel_state_with_course_command,
-)
-from usv_avoidance.replanning import (
-    decorate_avoidance_decision,
-    determine_replanning_need,
-    evaluate_active_evasive_course,
-)
 from usv_avoidance.scenario_config import (
-    OUTPUT_FILE,
-    USV_LAT0,
-    USV_LON0,
-    USV_SOG_KN,
-    USV_COG_DEG,
-    USV_HEADING_DEG,
-    STEP_S,
-    DELAY_S,
-    USV_TURN_RATE_DEG_S,
     MANEUVER_DECISION_DELAY_S,
 )
-
-from usv_avoidance.state_machine import (
-    NavigationStateMachine,
-    StateMachineConfig,
+from usv_avoidance.simulation_runner import (
+    list_scenarios,
+    run_scenario,
 )
 
-SAFETY_RADIUS_M = 50.0
-TIME_HORIZON_S = 300.0
-TRACKER_MAX_AGE_S = 60.0
-ROUTE_RECOVERY_TOLERANCE_DEG = 3.0
-SCENARIOS_DIR = Path(OUTPUT_FILE).parent
 
-
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """
-    Lee argumentos desde la terminal.
-
-    Permite ejecutar:
-        python -m usv_avoidance.main
-
-        python -m usv_avoidance.main --list-scenarios
-
-        python -m usv_avoidance.main --scenario crossing_starboard_risk_nmea.txt, por ejemplo, para ejecutar un escenario específico.
+    Lee los argumentos entregados desde la terminal.
     """
 
     parser = argparse.ArgumentParser(
-        description="Ejecuta un escenario AIS/NMEA guardado en data/scenarios."
+        description=(
+            "Ejecuta un escenario AIS/NMEA almacenado "
+            "en data/scenarios."
+        )
     )
 
     parser.add_argument(
         "--scenario",
         type=str,
         default=None,
-        help="Nombre del archivo .txt dentro de data/scenarios.",
+        help=(
+            "Nombre del escenario o archivo .txt ubicado "
+            "en data/scenarios."
+        ),
     )
 
     parser.add_argument(
         "--list-scenarios",
         action="store_true",
-        help="Lista los escenarios disponibles en data/scenarios.",
+        help="Muestra los escenarios disponibles.",
     )
 
     parser.add_argument(
-    "--visualize",
-    action="store_true",
-    help="Muestra una visualización del escenario procesado por main.py.",
+        "--visualize",
+        action="store_true",
+        help="Muestra la trayectoria obtenida en la simulación.",
     )
 
     parser.add_argument(
@@ -85,710 +51,633 @@ def parse_args():
         type=float,
         default=MANEUVER_DECISION_DELAY_S,
         help=(
-            "Tiempo de observación antes de ordenar la primera "
-            "maniobra evasiva."
+            "Tiempo de observación previo a ordenar "
+            "la primera maniobra evasiva."
         ),
     )
 
     return parser.parse_args()
 
 
-def list_available_scenarios():
+def print_available_scenarios() -> None:
     """
-    Muestra en pantalla todos los escenarios .txt disponibles
-    dentro de data/scenarios.
+    Muestra los escenarios disponibles en data/scenarios.
     """
 
-    print("\nEscenarios disponibles en data/scenarios:\n")
+    scenarios = list_scenarios()
 
-    scenario_files = sorted(SCENARIOS_DIR.glob("*.txt"))
+    print("\nEscenarios disponibles:\n")
 
-    if not scenario_files:
-        print("No se encontraron archivos .txt en data/scenarios.")
+    if not scenarios:
+        print("No se encontraron escenarios.")
         return
 
-    for scenario_file in scenario_files:
-        print(f" - {scenario_file.name}")
+    for scenario in scenarios:
+        file_name = (
+            scenario.get("output_file")
+            or scenario.get("name")
+            or "sin_nombre"
+        )
+
+        description = scenario.get("description", "")
+
+        if description:
+            print(f" - {file_name}: {description}")
+        else:
+            print(f" - {file_name}")
 
     print()
 
 
-def resolve_scenario_file(scenario_name: str | None) -> Path:
+def format_value(
+    value: Any,
+    decimals: int = 2,
+    suffix: str = "",
+) -> str:
     """
-    Determina qué archivo de escenario se va a ejecutar.
-
-    Si no se entrega --scenario, se usa OUTPUT_FILE desde scenario_config.py.
-
-    Si se entrega solo el nombre del archivo, se busca dentro de data/scenarios.
-    """
-
-    if scenario_name is None:
-        return Path(OUTPUT_FILE)
-
-    scenario_path = Path(scenario_name)
-
-    if scenario_path.parent == Path("."):
-        scenario_path = SCENARIOS_DIR / scenario_path
-
-    return scenario_path
-
-def visualize_processed_scenario(usv_history, target_history, scenario_file):
-    """
-    Visualiza el escenario que ya fue procesado por main.py.
-
-    No genera archivos nuevos.
-    No modifica scenario_config.py.
-    No sobrescribe OUTPUT_FILE.
-
-    Solo grafica las posiciones que main.py ya calculó y decodificó.
+    Formatea valores numéricos que podrían ser None.
     """
 
-    if not usv_history or not target_history:
-        print("No hay datos suficientes para visualizar.")
+    if value is None:
+        return "sin datos"
+
+    if isinstance(value, (int, float)):
+        return f"{value:.{decimals}f}{suffix}"
+
+    return str(value)
+
+
+def print_step(step: dict[str, Any]) -> None:
+    """
+    Imprime un paso de simulación entregado por run_scenario().
+    """
+
+    time_s = step.get("time_s", 0.0)
+    ownship = step.get("ownship", {})
+    targets = step.get("targets", [])
+    state_info = step.get("state", {})
+
+    print("\n" + "#" * 70)
+    print(
+        f"FRAME | "
+        f"t={format_value(time_s, 1, ' s')} | "
+        f"Contactos activos={len(targets)}"
+    )
+    print("#" * 70)
+
+    print(
+        "USV | "
+        f"Lat={format_value(ownship.get('lat'), 6)} | "
+        f"Lon={format_value(ownship.get('lon'), 6)} | "
+        f"SOG={format_value(ownship.get('sog_kn'), 1, ' kn')} | "
+        f"COG={format_value(ownship.get('cog_deg'), 1, '°')} | "
+        f"HDG={format_value(ownship.get('heading_deg'), 1, '°')}"
+    )
+
+    if not targets:
+        print("Sin contactos AIS activos.")
+
+    for target in targets:
+        print("-" * 70)
+
+        print(
+            f"Prioridad={target.get('priority')} | "
+            f"MMSI={target.get('mmsi')} | "
+            f"Lat={format_value(target.get('lat'), 6)} | "
+            f"Lon={format_value(target.get('lon'), 6)}"
+        )
+
+        print(
+            f"SOG={format_value(target.get('sog_kn'), 1, ' kn')} | "
+            f"COG={format_value(target.get('cog_deg'), 1, '°')} | "
+            f"Distancia={format_value(target.get('distance_m'), 2, ' m')} | "
+            f"CPA={format_value(target.get('cpa_m'), 2, ' m')} | "
+            f"TCPA={format_value(target.get('tcpa_s'), 1, ' s')}"
+        )
+
+        print(
+            f"Riesgo={target.get('risk')} | "
+            f"Encuentro={target.get('encounter_name')} | "
+            f"Rol USV={target.get('ownship_role')} | "
+            f"Debe maniobrar={target.get('should_maneuver')}"
+        )
+
+    print("-" * 70)
+
+    print(
+        f"Estado algoritmo: "
+        f"{state_info.get('current_state')} | "
+        f"Contacto crítico: "
+        f"{step.get('critical_target_mmsi')} | "
+        f"Rumbo ordenado: "
+        f"{format_value(step.get('commanded_course_deg'), 1, '°')}"
+    )
+
+    avoidance_decision = step.get("avoidance_decision")
+
+    if avoidance_decision:
+        recommended_course = format_value(
+            avoidance_decision.get(
+                "recommended_course_deg"
+            ),
+            1,
+            "°",
+        )
+
+        course_change = format_value(
+            avoidance_decision.get(
+                "course_change_deg"
+            ),
+            1,
+            "°",
+        )
+
+        print(
+            "Decisión evasiva | "
+            f"Acción={avoidance_decision.get('action')} | "
+            f"Rumbo recomendado={recommended_course} | "
+            f"Caída={course_change}"
+        )
+
+        reason = avoidance_decision.get(
+            "reason",
+            "sin información",
+        )
+
+        print(f"Motivo: {reason}")
+
+    active_course = step.get("active_course_evaluation")
+
+    if active_course:
+        candidate_is_safe = active_course.get(
+            "candidate_is_safe"
+        )
+
+        global_min_distance = format_value(
+            active_course.get("global_min_distance_m"),
+            2,
+            " m",
+        )
+
+        blocking_target = active_course.get(
+            "blocking_target_mmsi"
+        )
+
+        print(
+            "Evaluación rumbo activo | "
+            f"Seguro={candidate_is_safe} | "
+            f"Distancia mínima global={global_min_distance} | "
+            f"Contacto limitante={blocking_target}"
+        )
+
+
+def print_summary(result: dict[str, Any]) -> None:
+    """
+    Imprime el resumen final y las rutas de los archivos generados.
+    """
+
+    summary = result.get("summary", {})
+    metric_paths = result.get("metric_paths")
+
+    scenario_name = summary.get(
+        "nombre_escenario",
+        "sin nombre",
+    )
+
+    final_state = summary.get(
+        "estado_final",
+        "sin datos",
+    )
+
+    selected_course_change = format_value(
+        summary.get("caida_seleccionada_deg"),
+        1,
+        "°",
+    )
+
+    selected_course = format_value(
+        summary.get("rumbo_seleccionado_deg"),
+        1,
+        "°",
+    )
+
+    minimum_distance = format_value(
+        summary.get("distancia_minima_m"),
+        2,
+        " m",
+    )
+
+    minimum_cpa = format_value(
+        summary.get("cpa_minimo_m"),
+        2,
+        " m",
+    )
+
+    minimum_safety_margin = format_value(
+        summary.get("margen_seguridad_minimo_m"),
+        2,
+        " m",
+    )
+
+    reaction_time = format_value(
+        summary.get("tiempo_reaccion_s"),
+        1,
+        " s",
+    )
+
+    avoidance_time = format_value(
+        summary.get("tiempo_total_evasion_s"),
+        1,
+        " s",
+    )
+
+    print("\n" + "=" * 70)
+    print("RESUMEN DE LA SIMULACIÓN")
+    print("=" * 70)
+
+    print(f"Escenario: {scenario_name}")
+    print(f"Estado final: {final_state}")
+
+    print(
+        "Escenario exitoso: "
+        f"{summary.get('escenario_exitoso')}"
+    )
+
+    print(
+        "Riesgo detectado: "
+        f"{summary.get('riesgo_detectado')}"
+    )
+
+    print(
+        "Violó radio de seguridad: "
+        f"{summary.get('violo_radio_seguridad')}"
+    )
+
+    print(
+        "Acción seleccionada: "
+        f"{summary.get('accion_seleccionada')}"
+    )
+
+    print(
+        f"Caída seleccionada: {selected_course_change}"
+    )
+
+    print(
+        f"Rumbo seleccionado: {selected_course}"
+    )
+
+    print(
+        f"Distancia mínima: {minimum_distance}"
+    )
+
+    print(
+        f"CPA mínimo: {minimum_cpa}"
+    )
+
+    print(
+        "Margen mínimo de seguridad: "
+        f"{minimum_safety_margin}"
+    )
+
+    print(
+        f"Tiempo de reacción: {reaction_time}"
+    )
+
+    print(
+        f"Tiempo total en evasión: {avoidance_time}"
+    )
+
+    print(
+        "Cambios de estado: "
+        f"{summary.get('cantidad_cambios_estado')}"
+    )
+
+    print(
+        "Replanificaciones: "
+        f"{summary.get('cantidad_replanificaciones', 0)}"
+    )
+
+    if metric_paths:
+        print("\nArchivos generados:")
+
+        for name, path in metric_paths.items():
+            print(f" - {name}: {path}")
+
+
+def heading_to_vector(heading_deg: float, scale: float = 25.0):
+    """
+    Convierte un rumbo náutico en grados
+    (0° = Norte, 90° = Este)
+    a un vector (dx, dy) para graficar.
+    """
+    heading_rad = math.radians(heading_deg)
+    dx = scale * math.sin(heading_rad)
+    dy = scale * math.cos(heading_rad)
+    return dx, dy
+
+def visualize_result(result: dict[str, Any]) -> None:
+    """
+    Visualiza las trayectorias utilizando result['steps'].
+    """
+
+    steps = result.get("steps", [])
+
+    if not steps:
+        print("No existen pasos para visualizar.")
         return
 
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation
 
-    frames = min(len(usv_history), len(target_history))
+    ownship_x = []
+    ownship_y = []
+    target_tracks: dict[str, dict[str, list[float]]] = {}
 
-    usv_lats = [item["lat"] for item in usv_history[:frames]]
-    usv_lons = [item["lon"] for item in usv_history[:frames]]
+    for step in steps:
+        ownship = step.get("ownship", {})
 
-    target_lats = [item["lat"] for item in target_history[:frames]]
-    target_lons = [item["lon"] for item in target_history[:frames]]
+        if (
+            ownship.get("x_m") is not None
+            and ownship.get("y_m") is not None
+        ):
+            ownship_x.append(float(ownship["x_m"]))
+            ownship_y.append(float(ownship["y_m"]))
+
+        for target in step.get("targets", []):
+            if (
+                target.get("x_m") is None
+                or target.get("y_m") is None
+            ):
+                continue
+
+            mmsi = str(target.get("mmsi", "desconocido"))
+
+            if mmsi not in target_tracks:
+                target_tracks[mmsi] = {
+                    "x": [],
+                    "y": [],
+                }
+
+            target_tracks[mmsi]["x"].append(
+                float(target["x_m"])
+            )
+            target_tracks[mmsi]["y"].append(
+                float(target["y_m"])
+            )
+
+    if not ownship_x:
+        print("No existen posiciones válidas para visualizar.")
+        return
 
     fig, ax = plt.subplots()
 
-    ax.set_title(f"Escenario AIS: {scenario_file.name}")
-    ax.set_xlabel("Longitud")
-    ax.set_ylabel("Latitud")
+    scenario = result.get("scenario", {})
+    scenario_name = scenario.get("name", "sin nombre")
+
+    ax.set_title(f"Simulación AIS: {scenario_name}")
+    ax.set_xlabel("Posición Este [m]")
+    ax.set_ylabel("Posición Norte [m]")
 
     ax.plot(
-        usv_lons,
-        usv_lats,
-        marker="o",
+        ownship_x,
+        ownship_y,
         label="Trayectoria USV",
+        zorder=1,
     )
 
-    ax.plot(
-        target_lons,
-        target_lats,
-        marker="x",
-        label="Trayectoria blanco AIS",
+    for mmsi, track in target_tracks.items():
+        ax.plot(
+            track["x"],
+            track["y"],
+            label=f"Contacto {mmsi}",
+            zorder=1,
+        )
+
+    ownship_arrow = ax.quiver(
+        [0.0],
+        [0.0],
+        [0.0],
+        [1.0],
+        angles="xy",
+        scale_units="xy",
+        scale=1,
+        width=0.010,
+        pivot="mid",
+        color="blue",
+        label="USV actual",
+        zorder=7,
     )
 
-    usv_point, = ax.plot(
-        [],
-        [],
-        marker="o",
-        markersize=10,
-        label="USV propio",
-    )
-
-    target_point, = ax.plot(
-        [],
-        [],
-        marker="x",
-        markersize=10,
-        label="Blanco AIS",
-    )
+    target_arrows = {
+        mmsi: ax.quiver(
+            [0.0],
+            [0.0],
+            [0.0],
+            [1.0],
+            angles="xy",
+            scale_units="xy",
+            scale=1,
+            width=0.008,
+            pivot="mid",
+            color="black",
+            zorder=6,
+        )
+        for mmsi in target_tracks
+    }
 
     time_text = ax.text(
         0.02,
-        0.95,
+        0.96,
         "",
         transform=ax.transAxes,
     )
 
-    info_text = ax.text(
-        0.02,
-        0.90,
-        "",
-        transform=ax.transAxes,
+    all_x = list(ownship_x)
+    all_y = list(ownship_y)
+
+    for track in target_tracks.values():
+        all_x.extend(track["x"])
+        all_y.extend(track["y"])
+
+    x_range = max(all_x) - min(all_x)
+    y_range = max(all_y) - min(all_y)
+
+    x_margin = x_range * 0.15 if x_range > 0 else 10.0
+    y_margin = y_range * 0.15 if y_range > 0 else 10.0
+
+    ax.set_xlim(
+        min(all_x) - x_margin,
+        max(all_x) + x_margin,
     )
-
-    all_lons = usv_lons + target_lons
-    all_lats = usv_lats + target_lats
-
-    lon_margin = (max(all_lons) - min(all_lons)) * 0.2
-    lat_margin = (max(all_lats) - min(all_lats)) * 0.2
-
-    if lon_margin == 0:
-        lon_margin = 0.001
-
-    if lat_margin == 0:
-        lat_margin = 0.001
-
-    ax.set_xlim(min(all_lons) - lon_margin, max(all_lons) + lon_margin)
-    ax.set_ylim(min(all_lats) - lat_margin, max(all_lats) + lat_margin)
+    ax.set_ylim(
+        min(all_y) - y_margin,
+        max(all_y) + y_margin,
+    )
 
     ax.grid(True)
     ax.legend()
+    ax.set_aspect("equal", adjustable="box")
 
-    def update(frame):
-        usv = usv_history[frame]
-        target = target_history[frame]
+    def update(frame_index: int):
+        step = steps[frame_index]
+        ownship = step.get("ownship", {})
 
-        usv_point.set_data(
-            [usv["lon"]],
-            [usv["lat"]],
+        own_x = ownship.get("x_m")
+        own_y = ownship.get("y_m")
+
+        critical_target_mmsi = step.get("critical_target_mmsi")
+
+        if critical_target_mmsi is not None:
+            critical_target_mmsi = str(critical_target_mmsi)
+
+        own_heading = ownship.get("heading_deg")
+
+        if own_heading is None:
+            own_heading = ownship.get("cog_deg", 0.0)
+
+        if own_x is not None and own_y is not None:
+            own_dx, own_dy = heading_to_vector(
+                float(own_heading),
+                scale=40.0,
+            )
+
+            ownship_arrow.set_offsets(
+                [[float(own_x), float(own_y)]]
+            )
+
+            ownship_arrow.set_UVC(
+                [own_dx],
+                [own_dy],
+            )
+
+            ownship_arrow.set_visible(True)
+
+        else:
+            ownship_arrow.set_visible(False)
+
+        # Ocultar primero todos los contactos.
+        for arrow in target_arrows.values():
+            arrow.set_visible(False)
+
+        # Mostrar solamente los contactos presentes en este frame.
+        for target in step.get("targets", []):
+            mmsi = str(target.get("mmsi", "desconocido"))
+            arrow = target_arrows.get(mmsi)
+
+            if arrow is None:
+                continue
+
+            target_x = target.get("x_m")
+            target_y = target.get("y_m")
+
+            if target_x is None or target_y is None:
+                continue
+
+            target_heading = target.get("heading_deg")
+
+            if target_heading is None:
+                target_heading = target.get("cog_deg", 0.0)
+
+            is_priority = (
+                critical_target_mmsi is not None
+                and mmsi == critical_target_mmsi
+            )
+
+            if is_priority:
+                scale_used = 45.0
+                arrow.set(color="red")
+                arrow.set_linewidth(1.8)
+                arrow.set_zorder(8)
+            else:
+                scale_used = 35.0
+                arrow.set(color="black")
+                arrow.set_linewidth(1.0)
+                arrow.set_zorder(6)
+
+            target_dx, target_dy = heading_to_vector(
+                float(target_heading),
+                scale=scale_used,
+            )
+
+            arrow.set_offsets(
+                [[float(target_x), float(target_y)]]
+            )
+
+            arrow.set_UVC(
+                [target_dx],
+                [target_dy],
+            )
+
+            arrow.set_visible(True)
+
+        current_state = step.get(
+            "state",
+            {},
+        ).get(
+            "current_state",
+            "sin estado",
         )
 
-        target_point.set_data(
-            [target["lon"]],
-            [target["lat"]],
+        critical_target = step.get(
+            "critical_target_mmsi"
         )
+
+        time_s = step.get("time_s", 0.0)
 
         time_text.set_text(
-            f"t = {usv['timestamp']:.1f} s"
+            f"t = {time_s:.1f} s | "
+            f"Estado = {current_state} | "
+            f"Contacto crítico = {critical_target}"
         )
 
-        info_text.set_text(
-            f"MMSI: {target['mmsi']} | "
-            f"CPA: {target['cpa_m']:.2f} m | "
-            f"TCPA: {target['tcpa_s']:.2f} s | "
-            f"Encuentro: {target['encounter_name']}"
+        return (
+            ownship_arrow,
+            time_text,
+            *target_arrows.values(),
         )
-
-        return usv_point, target_point, time_text, info_text
 
     animation = FuncAnimation(
         fig,
         update,
-        frames=frames,
-        interval=500,
+        frames=len(steps),
+        interval=400,
         repeat=True,
     )
 
+    # Mantiene viva la referencia mientras se muestra la ventana.
+    _ = animation
+
     plt.show()
 
-def main():
+
+def main() -> None:
     args = parse_args()
 
     if args.list_scenarios:
-        list_available_scenarios()
+        print_available_scenarios()
         return
 
-    scenario_file = resolve_scenario_file(args.scenario)
-
-    results_dir = Path(scenario_file).parent.parent / "results"
-
-    metrics = SimulationMetrics(
-        scenario_name=Path(scenario_file).stem,
-        original_course_deg=USV_COG_DEG,
-        safety_radius_m=SAFETY_RADIUS_M,
-    )
-
-    print("=" * 70)
-    print(f"Escenario seleccionado: {scenario_file}")
-    print("=" * 70)
-
-    source = NmeaFileSource(
-        file_path=scenario_file,
-        delay_s=DELAY_S,
-    )
-
-    receiver = AisNmeaReceiver(strict_checksum=True)
-    tracker = TargetTracker(max_age_s=TRACKER_MAX_AGE_S) # Si un blanco no se actualiza en 60 segundos, se considera "stale" y se elimina.
-    state_machine = NavigationStateMachine( # Se encarga de evaluar la situación de navegación y decidir si el USV debe maniobrar.
-        config=StateMachineConfig(
-            maneuver_decision_delay_s=args.decision_delay_s,
-        )
-    )
-
-    ownship = {
-        "lat": USV_LAT0,
-        "lon": USV_LON0,
-        "sog_kn": USV_SOG_KN,
-        "cog_deg": USV_COG_DEG,
-        "heading_deg": USV_HEADING_DEG,
-        "timestamp": 0.0,
-    }
-
-    route_manager = RouteManager(
-        original_course_deg=USV_COG_DEG,
-        recovery_tolerance_deg=ROUTE_RECOVERY_TOLERANCE_DEG,
-    )
-
-    usv_history = []
-    target_history = [] 
-
-    active_evasive_course_deg = None
-    active_avoidance_decision = None
-    commanded_course_deg = USV_COG_DEG #Rumbo inicial del USV, que se puede modificar si el algoritmo decide maniobrar.
-    replan_count = 0 #Cuenta solamente los cambios posteriores al plan inicial 
-
-    for frame in source.read_frames(
-        default_step_s=STEP_S,
-    ):
-        # El tiempo de simulación corresponde al instante del frame.
-        # No depende de la cantidad de sentencias AIS contenidas.
-        ownship["timestamp"] = frame.timestamp_s
-
-        print("\n" + "#" * 70)
-        print(
-            f"FRAME | "
-            f"t={frame.timestamp_s:.1f} s | "
-            f"Sentencias AIS={len(frame.sentences)}"
-        )
-        print("#" * 70)
-
-        valid_updates = 0
-
-        # Primero se procesan todas las sentencias del mismo instante.
-        for sentence in frame.sentences:
-            ais_data = receiver.ingest(sentence)
-
-            if ais_data is None:
-                continue
-
-            if not ais_data.get("valid", False):
-                print(
-                    "Sentencia inválida:",
-                    ais_data.get("error"),
-                )
-                continue
-
-            if (
-                ais_data.get("lat") is None
-                or ais_data.get("lon") is None
-            ):
-                print("Mensaje AIS sin posición válida")
-                continue
-
-            updated_target = tracker.update_from_ais(
-                ais_data=ais_data,
-                received_at_s=frame.timestamp_s,
-            )
-
-            if updated_target is None:
-                print(
-                    "Mensaje AIS válido, pero sin datos "
-                    "cinemáticos suficientes."
-                )
-                continue
-
-            valid_updates += 1
-
-        print(
-            f"Contactos actualizados en el frame: "
-            f"{valid_updates}"
-        )
-
-        # La eliminación de contactos antiguos se realiza una vez,
-        # después de recibir todos los reportes del frame.
-        tracker.remove_stale_targets(
-            current_time_s=frame.timestamp_s,
-        )
-
-        active_targets = tracker.get_active_targets(
-            current_time_s=frame.timestamp_s,
-        )
-
-        print(
-            f"Contactos activos en el tracker: "
-            f"{len(active_targets)}"
-        )
-
-        assessments = build_assessments(
-            ownship=ownship,
-            targets=active_targets,
-            return_course_deg=route_manager.get_return_course(),
-            safety_radius_m=SAFETY_RADIUS_M,
-            time_horizon_s=TIME_HORIZON_S,
-        )
-
-        for assessment in assessments:
-            target = assessment["target"]
-            cpa_result = assessment["cpa_result"]
-            bearing_info = assessment["bearing_info"]
-            classification = assessment["classification"]
-
-            usv_history.append(
-                {
-                    "lat": ownship["lat"],
-                    "lon": ownship["lon"],
-                    "sog_kn": ownship["sog_kn"],
-                    "cog_deg": ownship["cog_deg"],
-                    "heading_deg": ownship["heading_deg"],
-                    "timestamp": ownship["timestamp"],
-                }
-            )
-
-            target_history.append(
-                {
-                    "mmsi": target["mmsi"],
-                    "lat": target["lat"],
-                    "lon": target["lon"],
-                    "sog_kn": target["sog_kn"],
-                    "cog_deg": target["cog_deg"],
-                    "heading_deg": target["heading_deg"],
-                    "cpa_m": cpa_result["cpa_m"],
-                    "tcpa_s": cpa_result["tcpa_s"],
-                    "risk": cpa_result["risk"],
-                    "encounter_name": classification["encounter_name"],
-                }
-            )
-
-            print("=" * 70)
-
-            print(
-                f"USV | "
-                f"t={ownship['timestamp']:.1f} s | "
-                f"Lat={ownship['lat']:.6f} | "
-                f"Lon={ownship['lon']:.6f} | "
-                f"SOG={ownship['sog_kn']} kn | "
-                f"COG={ownship['cog_deg']}° | "
-                f"HDG={ownship['heading_deg']}°"
-            )
-
-            print(
-                f"MMSI={target['mmsi']} | "
-                f"Lat={target['lat']:.6f} | "
-                f"Lon={target['lon']:.6f} | "
-                f"SOG={target['sog_kn']} kn | "
-                f"COG={target['cog_deg']}°"
-            )
-
-            print(
-                f"Distancia actual: {cpa_result['distance_m']:.2f} m | "
-                f"CPA: {cpa_result['cpa_m']:.2f} m | "
-                f"TCPA: {cpa_result['tcpa_s']:.2f} s | "
-                f"Riesgo: {cpa_result['risk']}"
-            )
-
-            print(
-                f"Demarcación verdadera: {bearing_info['true_bearing_deg']:.2f}° | "
-                f"Demarcación relativa: {bearing_info['relative_bearing_deg']:.2f}° | "
-                f"Sector: {bearing_info['side']}"
-            )
-
-            print(
-                f"Encuentro: {classification['encounter_name']} | "
-                f"Rol USV: {classification['ownship_role']} | "
-                f"Debe maniobrar: {classification['should_maneuver']} | "
-                f"Motivo: {classification['reason']}"
-            )
-
-        critical_assessment = select_most_critical_assessment(assessments)
-
-        route_recovered = route_manager.is_route_recovered(
-            current_course_deg=ownship["cog_deg"],
-        )
-
-        state_info = state_machine.update(
-            assessment=critical_assessment,
-            route_recovered=route_recovered,
-            current_time_s=frame.timestamp_s,
-        )
-
-        current_state = state_info["current_state"]
-        avoidance_decision = None
-
-        print("-" * 70)
-        print(
-            f"Estado algoritmo: {current_state} | "
-            f"Blanco activo: {state_info['active_target_mmsi']} | "
-            f"Motivo: {state_info['reason']}"
-        )
-
-        delay_remaining_s = state_info.get(
-            "decision_delay_remaining_s"
-        )
-
-        if (
-            current_state == "ASSESSING_TARGET"
-            and delay_remaining_s is not None
-        ):
-            print(
-                "Observación previa a maniobra | "
-                f"Tiempo restante: {delay_remaining_s:.1f} s"
-            )
-
-# ------------------------------------------------------------
-# 1. Evaluar el rumbo evasivo actualmente activo
-# ------------------------------------------------------------
-        active_course_evaluation = (
-            evaluate_active_evasive_course(
-                ownship=ownship,
-                critical_assessment=critical_assessment,
-                targets=active_targets,
-                active_evasive_course_deg=(
-                    active_evasive_course_deg
-                ),
-                safety_radius_m=SAFETY_RADIUS_M,
-                time_horizon_s=TIME_HORIZON_S,
-                dt_s=STEP_S,
-                turn_rate_deg_s=USV_TURN_RATE_DEG_S,
-            )
-        )
-
-# ------------------------------------------------------------
-# 1.2 Determinar si se necesita crear o recalcular el plan
-# ------------------------------------------------------------
-        replanning_info = determine_replanning_need(
-            current_state=current_state,
-            critical_assessment=critical_assessment,
-            active_evasive_course_deg=(
-                active_evasive_course_deg
+    try:
+        result = run_scenario(
+            scenario_name=args.scenario,
+            save_results=True,
+            maneuver_decision_delay_s=(
+                args.decision_delay_s
             ),
-            active_avoidance_decision=(
-                active_avoidance_decision
-            ),
-            active_course_evaluation=(
-                active_course_evaluation
-            ),
+            playback_delay_s=0.0,
         )
 
-# ------------------------------------------------------------
-# 1.3 Crear el plan inicial o recalcular la maniobra
-# ------------------------------------------------------------
-        if (
-            replanning_info["replan_required"]
-            and critical_assessment is not None
-        ):
-            avoidance_decision = recommend_avoidance_maneuver(
-                ownship=ownship,
-                target=critical_assessment["target"],
-                targets=active_targets,
-                classification=critical_assessment[
-                    "classification"
-                ],
-                state_info=state_info,
-                safety_radius_m=SAFETY_RADIUS_M,
-                time_horizon_s=TIME_HORIZON_S,
-                dt_s=STEP_S,
-                turn_rate_deg_s=USV_TURN_RATE_DEG_S,
-            )
+    except FileNotFoundError as error:
+        raise SystemExit(str(error)) from error
 
-            if avoidance_decision["maneuver_required"]:
-                # El plan inicial no se cuenta como replanificación.
-                if (
-                    replanning_info["trigger"]
-                    != "initial_plan"
-                ):
-                    replan_count += 1
+    for step in result.get("steps", []):
+        print_step(step)
 
-                avoidance_decision = (
-                    decorate_avoidance_decision(
-                        avoidance_decision,
-                        critical_assessment=(
-                            critical_assessment
-                        ),
-                        current_time_s=frame.timestamp_s,
-                        replanning_info=replanning_info,
-                        replan_count=replan_count,
-                    )
-                )
-
-                active_evasive_course_deg = (
-                    avoidance_decision[
-                        "recommended_course_deg"
-                    ]
-                )
-
-                active_avoidance_decision = (
-                    avoidance_decision
-                )
-
-# ------------------------------------------------------------
-# 2. Mostrar una planificación nueva o una replanificación
-# ------------------------------------------------------------
-        if avoidance_decision is not None:
-            print(
-                "PLANIFICACIÓN EVASIVA | "
-                f"Disparador: "
-                f"{avoidance_decision.get('plan_trigger', 'sin_nuevo_plan')} | "
-                f"MMSI planificado: "
-                f"{avoidance_decision.get('priority_target_mmsi', 'desconocido')} | "
-                f"Rumbo recomendado: "
-                f"{avoidance_decision.get('recommended_course_deg', 0):.1f}° | "
-                f"Caída: "
-                f"{avoidance_decision.get('course_change_deg', 0):.1f}° | "
-                f"Replanificaciones: "
-                f"{avoidance_decision.get('replan_count', 0)}"
-            )
-
-            print(
-                "Motivo de planificación: "
-                f"{avoidance_decision.get('plan_reason', 'desconocido')}"
-            )
-
-            print(
-                "Resultado de maniobra: "
-                f"{avoidance_decision.get('reason', 'desconocido')}"
-            )
-
-# ------------------------------------------------------------
-# 3. Mostrar la evaluación del rumbo evasivo activo
-# ------------------------------------------------------------
-        if active_course_evaluation is not None:
-            print(
-                "EVALUACIÓN DEL RUMBO ACTIVO | "
-                f"Seguro: "
-                f"{active_course_evaluation.get('candidate_is_safe', False)} | "
-                f"Distancia mínima global: "
-                f"{active_course_evaluation.get('global_min_distance_m', 0):.2f} m | "
-                f"Contacto limitante: "
-                f"{active_course_evaluation.get('blocking_target_mmsi', 'desconocido')}"
-            )
-
-            unsafe_target_mmsi = (
-                active_course_evaluation[
-                    "unsafe_target_mmsi"
-                ]
-            )
-
-            if unsafe_target_mmsi:
-                print(
-                    "Contactos que vulneran el radio de seguridad: "
-                    f"{unsafe_target_mmsi}"
-                )
-
-
-
-# ------------------------------------------------------------
-# 4. Definir orden de gobierno según estado del algoritmo
-# ------------------------------------------------------------
-        if current_state == "AVOIDING_TARGET":
-            if active_evasive_course_deg is not None:
-                commanded_course_deg = active_evasive_course_deg
-
-                print(
-                    f"Orden de gobierno: EVASIÓN | "
-                    f"Rumbo ordenado: {commanded_course_deg:.1f}°"
-                )
-            else:
-                commanded_course_deg = ownship["cog_deg"]
-
-                print(
-                    f"Orden de gobierno: MANTENER | "
-                    f"Rumbo ordenado: {commanded_course_deg:.1f}°"
-                )
-
-        elif current_state == "CLEARING_TARGET":
-            if active_evasive_course_deg is not None:
-                commanded_course_deg = active_evasive_course_deg
-
-                print(
-                    f"Orden de gobierno: CONFIRMAR DESPEJE | "
-                    f"manteniendo rumbo evasivo: {commanded_course_deg:.1f}°"
-                )
-
-        elif current_state == "RETURNING_TO_TRACK":
-            active_evasive_course_deg = None
-            active_avoidance_decision = None
-            replan_count = 0 # Se reinicia el contador de replanificaciones al volver a la ruta original.
-            commanded_course_deg = route_manager.get_return_course()
-            
-
-            print(
-                f"Orden de gobierno: RETORNO A RUTA | "
-                f"Rumbo ordenado: {commanded_course_deg:.1f}°"
-            )
-
-        elif current_state == "TRACKING_ROUTE":
-            active_evasive_course_deg = None
-            active_avoidance_decision = None
-            replan_count = 0 # Se reinicia el contador de replanificaciones al volver a la ruta original.
-            commanded_course_deg = USV_COG_DEG
-
-            print(
-                f"Orden de gobierno: RUTA NORMAL | "
-                f"Rumbo ordenado: {commanded_course_deg:.1f}°"
-            )
-
-        elif current_state == "ASSESSING_TARGET":
-            commanded_course_deg = ownship["cog_deg"]
-
-            print(
-                f"Orden de gobierno: EVALUACIÓN | "
-                f"mantener rumbo actual: {commanded_course_deg:.1f}°"
-            )
-
-        metrics.record_step(
-            ownship=ownship,
-            critical_assessment=critical_assessment,
-            assessments=assessments,
-            state_info=state_info,
-            commanded_course_deg=commanded_course_deg,
-            route_recovered=route_recovered,
-            dt_s=STEP_S,
-            avoidance_decision=active_avoidance_decision,
-            new_avoidance_decision=avoidance_decision,
-            replanning_info=replanning_info,
-            active_course_evaluation=(
-                active_course_evaluation
-            ),
-        )
-
-        ownship = advance_vessel_state_with_course_command(
-            vessel=ownship,
-            commanded_course_deg=commanded_course_deg,
-            dt_s=STEP_S,
-            turn_rate_deg_s=USV_TURN_RATE_DEG_S,
-        )
-
-    metric_paths = metrics.save(output_dir=results_dir)
-
-    summary = metrics.build_summary()
-
-    min_distance_text = (
-        f"{summary['distancia_minima_m']:.2f} m"
-        if summary["distancia_minima_m"] is not None
-        else "sin datos"
-    )
-
-    min_cpa_text = (
-        f"{summary['cpa_minimo_m']:.2f} m"
-        if summary["cpa_minimo_m"] is not None
-        else "sin datos"
-    )
-
-    margen_seguridad_text = (
-        f"{summary['margen_seguridad_minimo_m']:.2f} m"
-        if summary["margen_seguridad_minimo_m"] is not None
-        else "sin datos"
-    )
-
-    tiempo_reaccion_text = (
-        f"{summary['tiempo_reaccion_s']:.1f} s"
-        if summary["tiempo_reaccion_s"] is not None
-        else "sin datos"
-    )
-
-    print("-" * 70)
-    print("Resumen de métricas de simulación:")
-    print(f"Escenario: {summary['nombre_escenario']}")
-    print(f"Estado final: {summary['estado_final']}")
-    print(f"Escenario exitoso: {summary['escenario_exitoso']}")
-    print(f"Maniobra seleccionada: {summary['accion_seleccionada']}")
-    print(f"Caída seleccionada: {summary['caida_seleccionada_deg']}°")
-    print(f"Distancia mínima real: {min_distance_text}")
-    print(f"CPA mínimo calculado: {min_cpa_text}")
-    print(f"Margen mínimo de seguridad: {margen_seguridad_text}")
-    print(f"Violó radio de seguridad: {summary['violo_radio_seguridad']}")
-    print(f"Tiempo de reacción: {tiempo_reaccion_text}")
-    print(f"Tiempo en evasión: {summary['tiempo_total_evasion_s']:.1f} s")
-    print(f"Tiempo en despeje: {summary['tiempo_total_despeje_s']:.1f} s")
-    print(f"Tiempo retornando a ruta: {summary['tiempo_total_retorno_ruta_s']:.1f} s")
-    print(f"Ruta recuperada después de evasión: {summary['ruta_recuperada_despues_evasion']}")
-    print(f"Cambios de estado: {summary['cantidad_cambios_estado']}")
-    print(f"Cambios de rumbo ordenado: {summary['cantidad_cambios_rumbo_ordenado']}")
-    print(
-        "Variación total de rumbo ordenado: "
-        f"{summary['variacion_total_rumbo_ordenado_deg']:.1f}°"
-    )
-    print(f"Historial CSV: {metric_paths['steps_path']}")
-    print(f"Resumen JSON: {metric_paths['summary_path']}")
+    print_summary(result)
 
     if args.visualize:
-        visualize_processed_scenario(
-        usv_history=usv_history,
-        target_history=target_history,
-        scenario_file=scenario_file,
-        )
+        visualize_result(result)
+
 
 if __name__ == "__main__":
     main()
