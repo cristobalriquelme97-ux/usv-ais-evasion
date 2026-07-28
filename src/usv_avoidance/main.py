@@ -710,11 +710,17 @@ def main():
         metrics.record_step(
             ownship=ownship,
             critical_assessment=critical_assessment,
+            assessments=assessments,
             state_info=state_info,
             commanded_course_deg=commanded_course_deg,
             route_recovered=route_recovered,
             dt_s=STEP_S,
             avoidance_decision=active_avoidance_decision,
+            new_avoidance_decision=avoidance_decision,
+            replanning_info=replanning_info,
+            active_course_evaluation=(
+                active_course_evaluation
+            ),
         )
 
         ownship = advance_vessel_state_with_course_command(

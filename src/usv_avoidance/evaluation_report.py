@@ -34,6 +34,22 @@ SUMMARY_FIELDS = [
     "cantidad_cambios_rumbo_ordenado",
     "variacion_total_rumbo_ordenado_deg",
     "max_cambio_rumbo_ordenado_deg",
+    # Métricas multiblanco
+    "contactos_unicos_detectados",
+    "max_contactos_activos_simultaneos",
+    "max_contactos_en_riesgo_simultaneos",
+    "tiempo_multiblanco_s",
+    "tiempo_riesgo_simultaneo_s",
+    "cantidad_cambios_contacto_prioritario",
+    "cantidad_planes_evasivos",
+    "cantidad_replanificaciones",
+    "replan_por_cambio_prioridad",
+    "replan_por_rumbo_inseguro",
+    "candidatos_rechazados_por_contacto_secundario",
+    "planes_condicionados_por_contacto_secundario",
+    "tiempo_rumbo_activo_inseguro_s",
+    "mmsi_distancia_minima",
+    "mmsi_cpa_minimo",
     "total_muestras",
 ]
 
