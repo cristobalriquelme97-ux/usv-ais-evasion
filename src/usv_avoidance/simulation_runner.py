@@ -9,6 +9,7 @@ from usv_avoidance.avoidance import recommend_avoidance_maneuver
 from usv_avoidance.cpa_tcpa import latlon_to_xy_m
 from usv_avoidance.collision_assessment import build_assessments
 from usv_avoidance.target_priority import (
+    rank_assessments,
     select_most_critical_assessment,
 )
 from usv_avoidance.motion_model import advance_vessel_state_with_course_command
@@ -326,7 +327,14 @@ def _build_step(
 
     targets = []
 
-    for index, assessment in enumerate(assessments, start=1):
+    ranked_assessments = rank_assessments(
+        assessments
+    )
+
+    for index, assessment in enumerate(
+        ranked_assessments,
+        start=1,
+    ):
         target = assessment["target"]
         target_x_m, target_y_m = latlon_to_xy_m(
             lat=float(target["lat"]),
