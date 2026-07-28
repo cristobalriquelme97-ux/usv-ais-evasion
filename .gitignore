@@ -28,3 +28,6 @@ outputs/
 *.csv
 *.xlsx
 *.mat
+
+# Trayectorias intermedias para escenarios multiblanco
+data/scenarios/multitarget_sources/
