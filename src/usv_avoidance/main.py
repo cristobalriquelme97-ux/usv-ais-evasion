@@ -296,36 +296,77 @@ def main():
     active_avoidance_decision = None
     commanded_course_deg = USV_COG_DEG #Rumbo inicial del USV, que se puede modificar si el algoritmo decide maniobrar.
 
-    for sentence in source.read_sentences():
-        ais_data = receiver.ingest(sentence)
+    for frame in source.read_frames(
+        default_step_s=STEP_S,
+    ):
+        # El tiempo de simulación corresponde al instante del frame.
+        # No depende de la cantidad de sentencias AIS contenidas.
+        ownship["timestamp"] = frame.timestamp_s
 
-        if ais_data is None:
-            continue
+        print("\n" + "#" * 70)
+        print(
+            f"FRAME | "
+            f"t={frame.timestamp_s:.1f} s | "
+            f"Sentencias AIS={len(frame.sentences)}"
+        )
+        print("#" * 70)
 
-        if not ais_data.get("valid", False):
-            print("Sentencia inválida:", ais_data.get("error"))
-            continue
+        valid_updates = 0
 
-        if ais_data.get("lat") is None or ais_data.get("lon") is None:
-            print("Mensaje AIS sin posición válida")
-            continue
+        # Primero se procesan todas las sentencias del mismo instante.
+        for sentence in frame.sentences:
+            ais_data = receiver.ingest(sentence)
 
-        updated_target = tracker.update_from_ais(
-            ais_data=ais_data,
-            received_at_s=ownship["timestamp"],
+            if ais_data is None:
+                continue
+
+            if not ais_data.get("valid", False):
+                print(
+                    "Sentencia inválida:",
+                    ais_data.get("error"),
+                )
+                continue
+
+            if (
+                ais_data.get("lat") is None
+                or ais_data.get("lon") is None
+            ):
+                print("Mensaje AIS sin posición válida")
+                continue
+
+            updated_target = tracker.update_from_ais(
+                ais_data=ais_data,
+                received_at_s=frame.timestamp_s,
+            )
+
+            if updated_target is None:
+                print(
+                    "Mensaje AIS válido, pero sin datos "
+                    "cinemáticos suficientes."
+                )
+                continue
+
+            valid_updates += 1
+
+        print(
+            f"Contactos actualizados en el frame: "
+            f"{valid_updates}"
         )
 
-        if updated_target is None:
-            print("Mensaje AIS válido, pero sin datos cinemáticos suficientes.")
-            continue
-
+        # La eliminación de contactos antiguos se realiza una vez,
+        # después de recibir todos los reportes del frame.
         tracker.remove_stale_targets(
-            current_time_s=ownship["timestamp"],
+            current_time_s=frame.timestamp_s,
         )
-        
+
         active_targets = tracker.get_active_targets(
-            current_time_s=ownship["timestamp"],
-        )     
+            current_time_s=frame.timestamp_s,
+        )
+
+        print(
+            f"Contactos activos en el tracker: "
+            f"{len(active_targets)}"
+        )
 
         assessments = build_assessments(
             ownship=ownship,
