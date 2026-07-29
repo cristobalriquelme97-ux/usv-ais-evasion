@@ -2,8 +2,19 @@
     "nombre_escenario": "close_crossing_starboard_risk_nmea",
     "radio_seguridad_m": 50.0,
     "estado_final": "TRACKING_ROUTE",
+    "resultado_seguro": true,
+    "comportamiento_esperado": true,
     "escenario_exitoso": true,
     "riesgo_detectado": true,
+    "encuentro_esperado": "cruce",
+    "encuentro_observado": "cruce",
+    "encuentro_correcto": true,
+    "rol_esperado": "give_way",
+    "rol_observado": "give_way",
+    "rol_correcto": true,
+    "accion_esperada": "alter_course_starboard",
+    "accion_observada": "alter_course_starboard",
+    "accion_correcta": true,
     "violo_radio_seguridad": false,
     "ruta_recuperada_alguna_vez": true,
     "ruta_recuperada_despues_evasion": true,
@@ -35,7 +46,7 @@
     "max_contactos_activos_simultaneos": 1,
     "promedio_contactos_activos": 1.0,
     "max_contactos_en_riesgo_simultaneos": 1,
-    "promedio_contactos_en_riesgo": 0.13114754098360656,
+    "promedio_contactos_en_riesgo": 0.1951219512195122,
     "muestras_multiblanco": 0,
     "tiempo_multiblanco_s": 0.0,
     "muestras_riesgo_simultaneo": 0,
@@ -66,5 +77,5 @@
     "cpa_minimo_por_mmsi_m": {
         "725000008": 0.0001796382141510048
     },
-    "total_muestras": 61
+    "total_muestras": 41
 }

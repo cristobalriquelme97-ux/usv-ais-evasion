@@ -19,6 +19,37 @@ from typing import Any, Mapping, Sequence
 
 from usv_avoidance.motion_model import shortest_angle_difference_deg
 
+def _normalize_optional_text(
+    value: Any,
+) -> str | None:
+    """
+    Normaliza textos utilizados en las comparaciones.
+    """
+
+    if value is None:
+        return None
+
+    normalized = str(value).strip().lower()
+
+    return normalized or None
+
+
+def _normalize_action(
+    value: Any,
+) -> str | None:
+    """
+    Normaliza las acciones del algoritmo.
+
+    La acción best effort continúa representando una caída a
+    estribor. Su seguridad se evalúa de manera independiente.
+    """
+
+    action = _normalize_optional_text(value)
+
+    if action == "alter_course_starboard_best_effort":
+        return "alter_course_starboard"
+
+    return action
 
 class SimulationMetrics:
     """
@@ -33,10 +64,22 @@ class SimulationMetrics:
         scenario_name: str,
         original_course_deg: float,
         safety_radius_m: float,
+        expected_encounter: str | None = None,
+        expected_ownship_role: str | None = None,
+        expected_action: str | None = None,
     ):
         self.scenario_name = scenario_name
         self.original_course_deg = float(original_course_deg)
         self.safety_radius_m = float(safety_radius_m)
+        self.expected_encounter = _normalize_optional_text(
+            expected_encounter
+        )
+        self.expected_ownship_role = _normalize_optional_text(
+            expected_ownship_role
+        )
+        self.expected_action = _normalize_action(
+            expected_action
+        )
 
         self.rows: list[dict[str, Any]] = []
 
@@ -640,14 +683,99 @@ class SimulationMetrics:
         else:
             safety_margin_m = min_distance_m - self.safety_radius_m
 
-        scenario_success = (
-            not safety_radius_violated
-            and (
-                not self.risk_detected_ever
-                or self.route_recovered_after_avoidance
-                or self.time_in_avoidance_s == 0.0
+        # ---------------------------------------------------------
+        # Resultado de seguridad
+        # ---------------------------------------------------------
+
+        safety_result = not safety_radius_violated
+
+        # ---------------------------------------------------------
+        # Comportamiento observado
+        # ---------------------------------------------------------
+
+        risk_rows = [
+            row
+            for row in self.rows
+            if row.get("riesgo_colision") is True
+            and row.get("tipo_encuentro") is not None
+        ]
+
+        classification_rows = risk_rows or [
+            row
+            for row in self.rows
+            if row.get("tipo_encuentro") is not None
+        ]
+
+        if classification_rows:
+            observed_classification = classification_rows[0]
+
+            observed_encounter = _normalize_optional_text(
+                observed_classification.get("tipo_encuentro")
+            )
+            observed_ownship_role = _normalize_optional_text(
+                observed_classification.get("rol_usv")
+            )
+        else:
+            observed_encounter = None
+            observed_ownship_role = None
+
+        observed_action = _normalize_action(
+            self.selected_action
+        )
+
+        # Si el algoritmo no ordenó una maniobra, su acción efectiva
+        # fue conservar el rumbo.
+        if observed_action is None:
+            observed_action = "maintain_course"
+
+        expectations_available = all(
+            value is not None
+            for value in (
+                self.expected_encounter,
+                self.expected_ownship_role,
+                self.expected_action,
             )
         )
+
+        if expectations_available:
+            encounter_matches_expected = (
+                observed_encounter
+                == self.expected_encounter
+            )
+
+            role_matches_expected = (
+                observed_ownship_role
+                == self.expected_ownship_role
+            )
+
+            action_matches_expected = (
+                observed_action
+                == self.expected_action
+            )
+
+            expected_behavior_result = all(
+                (
+                    encounter_matches_expected,
+                    role_matches_expected,
+                    action_matches_expected,
+                )
+            )
+        else:
+            encounter_matches_expected = None
+            role_matches_expected = None
+            action_matches_expected = None
+            expected_behavior_result = None
+
+        # Para escenarios sin expectativas declaradas, por ejemplo
+        # pruebas multiblanco preliminares, el resultado global queda
+        # determinado solamente por la seguridad.
+        if expected_behavior_result is None:
+            scenario_success = safety_result
+        else:
+            scenario_success = (
+                safety_result
+                and expected_behavior_result
+            )
 
         sample_count = len(self.rows)
 
@@ -671,8 +799,25 @@ class SimulationMetrics:
             "estado_final": self.final_state,
 
             # Resultado global
+            "resultado_seguro": safety_result,
+            "comportamiento_esperado": (
+                expected_behavior_result
+            ),
             "escenario_exitoso": scenario_success,
             "riesgo_detectado": self.risk_detected_ever,
+
+            # Comparación con el comportamiento esperado
+            "encuentro_esperado": self.expected_encounter,
+            "encuentro_observado": observed_encounter,
+            "encuentro_correcto": (
+                encounter_matches_expected
+            ),
+            "rol_esperado": self.expected_ownship_role,
+            "rol_observado": observed_ownship_role,
+            "rol_correcto": role_matches_expected,
+            "accion_esperada": self.expected_action,
+            "accion_observada": observed_action,
+            "accion_correcta": action_matches_expected,
             "violo_radio_seguridad": safety_radius_violated,
             "ruta_recuperada_alguna_vez": self.route_recovered_ever,
             "ruta_recuperada_despues_evasion": self.route_recovered_after_avoidance, #El usv maniobró y luego volvió a su rumbo original.

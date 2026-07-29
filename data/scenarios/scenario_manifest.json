@@ -8,10 +8,8 @@
         "turn_rate_deg_s": 1.0
     },
     "simulation": {
-        "duration_s": 200,
-        "step_s": 5,
-        "safety_radius_m": 50.0,
-        "time_horizon_s": 300.0
+    "duration_s": 200,
+    "step_s": 5
     },
     "scenarios": [
         {
@@ -69,7 +67,7 @@
             "target_cog_deg": 0.0,
             "expected_encounter": "alcance",
             "expected_ownship_role": "give_way",
-            "expected_action": "keep_clear",
+            "expected_action": "alter_course_starboard",
             "output_file": "overtaking_ownship_give_way_nmea.txt",
             "target_lat0": -33.0227516959852,
             "target_lon0": -71.625

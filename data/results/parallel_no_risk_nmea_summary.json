@@ -2,8 +2,19 @@
     "nombre_escenario": "parallel_no_risk_nmea",
     "radio_seguridad_m": 50.0,
     "estado_final": "TRACKING_ROUTE",
+    "resultado_seguro": true,
+    "comportamiento_esperado": true,
     "escenario_exitoso": true,
     "riesgo_detectado": false,
+    "encuentro_esperado": "sin riesgo",
+    "encuentro_observado": "sin riesgo",
+    "encuentro_correcto": true,
+    "rol_esperado": "none",
+    "rol_observado": "none",
+    "rol_correcto": true,
+    "accion_esperada": "maintain_course",
+    "accion_observada": "maintain_course",
+    "accion_correcta": true,
     "violo_radio_seguridad": false,
     "ruta_recuperada_alguna_vez": true,
     "ruta_recuperada_despues_evasion": false,
@@ -64,5 +75,5 @@
     "cpa_minimo_por_mmsi_m": {
         "725000006": 149.9440781486012
     },
-    "total_muestras": 61
+    "total_muestras": 41
 }

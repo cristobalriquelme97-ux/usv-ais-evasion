@@ -81,6 +81,22 @@ def list_scenarios() -> list[dict[str, Any]]:
         key=lambda item: str(item.get("name", item.get("output_file", ""))),
     )
 
+def get_scenario_metadata(
+    scenario_file: Path,
+) -> dict[str, Any]:
+    """
+    Obtiene los metadatos y resultados esperados de un escenario.
+
+    Si el archivo no se encuentra en el manifiesto, devuelve un
+    diccionario vacío. Esto permite ejecutar escenarios de prueba
+    o multiblanco que todavía no tengan expectativas definidas.
+    """
+
+    for scenario in list_scenarios():
+        if scenario.get("output_file") == scenario_file.name:
+            return dict(scenario)
+
+    return {}
 
 def resolve_scenario_file(scenario_name: str | None = None) -> Path:
     """
@@ -130,6 +146,9 @@ def run_scenario(
 
     scenario_file = resolve_scenario_file(scenario_name)
     scenario_stem = scenario_file.stem
+    scenario_metadata = get_scenario_metadata(
+        scenario_file=scenario_file,
+    )
 
     config = (
         algorithm_config
@@ -180,6 +199,15 @@ def run_scenario(
         scenario_name=scenario_stem,
         original_course_deg=USV_COG_DEG,
         safety_radius_m=config.safety_radius_m,
+        expected_encounter=scenario_metadata.get(
+            "expected_encounter"
+        ),
+        expected_ownship_role=scenario_metadata.get(
+            "expected_ownship_role"
+        ),
+        expected_action=scenario_metadata.get(
+            "expected_action"
+        ),
     )
 
     ownship = {
@@ -197,12 +225,27 @@ def run_scenario(
     replan_count = 0
     steps: list[dict[str, Any]] = []
 
+    # Se utiliza para calcular el tiempo realmente transcurrido
+    # entre dos frames consecutivos.
+    previous_timestamp_s: float | None = None
+
+
     for frame in source.read_frames(
         default_step_s=STEP_S,
     ):
         # El tiempo de simulación queda determinado por el frame,
         # no por la cantidad de sentencias AIS que contiene.
         ownship["timestamp"] = frame.timestamp_s
+
+        if previous_timestamp_s is None:
+            elapsed_s = 0.0
+        else:
+            elapsed_s = max(
+                0.0,
+                frame.timestamp_s - previous_timestamp_s,
+            )
+
+        previous_timestamp_s = frame.timestamp_s
 
         # Primero se procesan todas las sentencias correspondientes
         # al mismo instante de simulación.
@@ -392,7 +435,7 @@ def run_scenario(
             state_info=state_info,
             commanded_course_deg=commanded_course_deg,
             route_recovered=route_recovered,
-            dt_s=STEP_S,
+            dt_s=elapsed_s,
             avoidance_decision=active_avoidance_decision,
             new_avoidance_decision=avoidance_decision,
             replanning_info=replanning_info,
