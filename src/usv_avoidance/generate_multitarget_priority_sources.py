@@ -52,7 +52,7 @@ TARGET_SOURCES = (
         mmsi=725000101,
         offset_east_m=450.0,
         offset_north_m=450.0,
-        sog_kn=6.0,
+        sog_kn=4.0,
         cog_deg=270.0,
     ),
     TargetSourceConfig(

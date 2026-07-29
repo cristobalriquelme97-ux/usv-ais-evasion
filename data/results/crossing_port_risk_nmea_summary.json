@@ -28,5 +28,41 @@
     "cantidad_cambios_rumbo_ordenado": 0,
     "variacion_total_rumbo_ordenado_deg": 0.0,
     "max_cambio_rumbo_ordenado_deg": 0.0,
-    "total_muestras": 41
+    "contactos_unicos_detectados": 1,
+    "mmsi_detectados": [
+        725000002
+    ],
+    "max_contactos_activos_simultaneos": 1,
+    "promedio_contactos_activos": 1.0,
+    "max_contactos_en_riesgo_simultaneos": 1,
+    "promedio_contactos_en_riesgo": 0.4918032786885246,
+    "muestras_multiblanco": 0,
+    "tiempo_multiblanco_s": 0.0,
+    "muestras_riesgo_simultaneo": 0,
+    "tiempo_riesgo_simultaneo_s": 0.0,
+    "cantidad_cambios_contacto_prioritario": 0,
+    "contactos_prioritarios_unicos": 1,
+    "mmsi_prioritarios": [
+        725000002
+    ],
+    "cantidad_planes_evasivos": 0,
+    "cantidad_replanificaciones": 0,
+    "replan_por_cambio_prioridad": 0,
+    "replan_por_rumbo_inseguro": 0,
+    "replan_por_ambas_causas": 0,
+    "muestras_rumbo_activo_inseguro": 0,
+    "tiempo_rumbo_activo_inseguro_s": 0.0,
+    "mmsi_contactos_limitantes": [],
+    "candidatos_rechazados_por_contacto_secundario": 0,
+    "planes_condicionados_por_contacto_secundario": 0,
+    "planes_mejor_esfuerzo": 0,
+    "mmsi_distancia_minima": 725000002,
+    "mmsi_cpa_minimo": 725000002,
+    "distancia_minima_por_mmsi_m": {
+        "725000002": 3.457379323908848
+    },
+    "cpa_minimo_por_mmsi_m": {
+        "725000002": 0.00027789447215618236
+    },
+    "total_muestras": 61
 }

@@ -171,7 +171,13 @@ class NavigationStateMachine:
 
             return_course_safe = return_cpa_m >= return_safety_radius_m
 
-        target_clear = target_passed_cpa or return_course_safe
+        target_clear = (
+            not risk
+            and (
+                target_passed_cpa
+                or return_course_safe
+            )
+        )
 
         reason = "Estado mantenido."
 
@@ -260,19 +266,16 @@ class NavigationStateMachine:
                 )
 
         elif self.state == NavigationState.AVOIDING_TARGET:
-            if target_clear:
-                self.state = NavigationState.CLEARING_TARGET
-                self.clear_counter = 1
-
-                reason = "El blanco comienza a quedar claro."
-
-            elif risk and should_maneuver:
+            # Mientras exista riesgo y el USV deba maniobrar,
+            # la evasión tiene prioridad sobre el despeje.
+            if risk and should_maneuver:
                 if target_mmsi != self.active_target_mmsi:
                     previous_target_mmsi = (
                         self.active_target_mmsi
                     )
 
                     self.active_target_mmsi = target_mmsi
+                    self.clear_counter = 0
 
                     reason = (
                         "Cambió el contacto prioritario durante la "
@@ -283,32 +286,64 @@ class NavigationStateMachine:
                 else:
                     reason = "Se mantiene estado evasivo."
 
+            elif target_clear:
+                self.state = NavigationState.CLEARING_TARGET
+                self.clear_counter = 1
+
+                reason = "El blanco comienza a quedar claro."
+
             else:
                 reason = "Se mantiene estado evasivo."
 
         elif self.state == NavigationState.CLEARING_TARGET:
-            if target_clear:
-                self.clear_counter += 1
-
-                if self.clear_counter >= self.config.clear_samples_required:
-                    self.state = NavigationState.RETURNING_TO_TRACK
-                    reason = "Blanco claro durante tres actualizaciones consecutivas."
-                else:
-                    reason = "Confirmando que el blanco quedó claro."
-
-            elif risk and should_maneuver:
+            # Si todavía existe riesgo, se cancela inmediatamente
+            # la confirmación de despeje.
+            if risk and should_maneuver:
                 self.state = NavigationState.AVOIDING_TARGET
+                self.active_target_mmsi = target_mmsi
                 self.clear_counter = 0
-                reason = "El riesgo reapareció; volver a evasión."
+
+                reason = (
+                    "El contacto continúa en riesgo; "
+                    "volver a evasión."
+                )
 
             elif risk:
                 self.state = NavigationState.ASSESSING_TARGET
+                self.active_target_mmsi = target_mmsi
                 self.clear_counter = 0
-                reason = "Riesgo reaparece; volver a evaluación."
+
+                reason = (
+                    "El contacto continúa en riesgo; "
+                    "volver a evaluación."
+                )
+
+            elif target_clear:
+                self.clear_counter += 1
+
+                if (
+                    self.clear_counter
+                    >= self.config.clear_samples_required
+                ):
+                    self.state = (
+                        NavigationState.RETURNING_TO_TRACK
+                    )
+
+                    reason = (
+                        "Blanco claro durante tres "
+                        "actualizaciones consecutivas."
+                    )
+                else:
+                    reason = (
+                        "Confirmando que el blanco quedó claro."
+                    )
 
             else:
                 self.clear_counter = 0
-                reason = "Aún no se confirma despeje del blanco."
+
+                reason = (
+                    "Aún no se confirma despeje del blanco."
+                )
 
         elif self.state == NavigationState.RETURNING_TO_TRACK:
             if risk and should_maneuver:

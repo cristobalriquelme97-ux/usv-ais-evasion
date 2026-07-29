@@ -35,7 +35,7 @@
     "max_contactos_activos_simultaneos": 1,
     "promedio_contactos_activos": 1.0,
     "max_contactos_en_riesgo_simultaneos": 1,
-    "promedio_contactos_en_riesgo": 0.14634146341463414,
+    "promedio_contactos_en_riesgo": 0.09836065573770492,
     "muestras_multiblanco": 0,
     "tiempo_multiblanco_s": 0.0,
     "muestras_riesgo_simultaneo": 0,
@@ -66,5 +66,5 @@
     "cpa_minimo_por_mmsi_m": {
         "725000003": 4.754636958213155e-14
     },
-    "total_muestras": 41
+    "total_muestras": 61
 }

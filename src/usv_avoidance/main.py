@@ -429,7 +429,7 @@ def visualize_result(result: dict[str, Any]) -> None:
         print("No existen posiciones válidas para visualizar.")
         return
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(9, 7))
 
     scenario = result.get("scenario", {})
     scenario_name = scenario.get("name", "sin nombre")
@@ -485,11 +485,13 @@ def visualize_result(result: dict[str, Any]) -> None:
         for mmsi in target_tracks
     }
 
-    time_text = ax.text(
-        0.02,
-        0.96,
+    time_text = fig.text(
+        0.5,
+        0.92,
         "",
-        transform=ax.transAxes,
+        ha="center",
+        va="top",
+        fontsize=10,
     )
 
     all_x = list(ownship_x)
@@ -516,8 +518,15 @@ def visualize_result(result: dict[str, Any]) -> None:
 
     ax.grid(True)
     ax.legend()
-    ax.set_aspect("equal", adjustable="box")
+    ax.set_aspect("equal", adjustable="datalim")
 
+    fig.subplots_adjust(
+        top=0.84,
+        bottom=0.12,
+        left=0.12,
+        right=0.95,
+    )
+    
     def update(frame_index: int):
         step = steps[frame_index]
         ownship = step.get("ownship", {})
