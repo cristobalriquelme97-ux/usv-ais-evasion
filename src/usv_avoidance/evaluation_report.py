@@ -14,42 +14,64 @@ DEFAULT_OUTPUT_FILE = RESULTS_DIR / "evaluation_summary.csv"
 
 
 SUMMARY_FIELDS = [
+    # Identificación
     "nombre_escenario",
+
+    # Resultado global
+    "resultado_seguro",
+    "comportamiento_esperado",
     "escenario_exitoso",
+
+    # Cumplimiento lógico y RIPA
+    "encuentro_esperado",
+    "encuentro_observado",
+    "encuentro_correcto",
+    "rol_esperado",
+    "rol_observado",
+    "rol_correcto",
+    "accion_esperada",
+    "accion_observada",
+    "accion_correcta",
+
+    # Seguridad
     "riesgo_detectado",
     "violo_radio_seguridad",
-    "estado_final",
+    "radio_seguridad_m",
+    "distancia_minima_m",
+    "margen_seguridad_minimo_m",
+    "cpa_minimo_m",
+    "1era_deteccion_riesgo_s",
+    "1era_violacion_seguridad_s",
+
+    # Eficiencia de la respuesta
     "accion_seleccionada",
     "caida_seleccionada_deg",
-    "distancia_minima_m",
-    "cpa_minimo_m",
-    "margen_seguridad_minimo_m",
     "tiempo_reaccion_s",
     "tiempo_total_evasion_s",
     "tiempo_total_despeje_s",
     "tiempo_total_retorno_ruta_s",
     "ruta_recuperada_despues_evasion",
+
+    # Estabilidad
     "desviacion_maxima_rumbo_usv_deg",
     "cantidad_cambios_estado",
     "cantidad_cambios_rumbo_ordenado",
     "variacion_total_rumbo_ordenado_deg",
     "max_cambio_rumbo_ordenado_deg",
-    # Métricas multiblanco
+
+    # Multibuque
     "contactos_unicos_detectados",
     "max_contactos_activos_simultaneos",
     "max_contactos_en_riesgo_simultaneos",
-    "tiempo_multiblanco_s",
-    "tiempo_riesgo_simultaneo_s",
     "cantidad_cambios_contacto_prioritario",
     "cantidad_planes_evasivos",
     "cantidad_replanificaciones",
-    "replan_por_cambio_prioridad",
-    "replan_por_rumbo_inseguro",
     "candidatos_rechazados_por_contacto_secundario",
     "planes_condicionados_por_contacto_secundario",
     "tiempo_rumbo_activo_inseguro_s",
-    "mmsi_distancia_minima",
-    "mmsi_cpa_minimo",
+
+    # Control
+    "estado_final",
     "total_muestras",
 ]
 
