@@ -1,10 +1,12 @@
 from __future__ import annotations
-import math
+
 import argparse
+import math
+from dataclasses import replace
 from typing import Any
 
-from usv_avoidance.scenario_config import (
-    MANEUVER_DECISION_DELAY_S,
+from usv_avoidance.algorithm_config import (
+    DEFAULT_ALGORITHM_CONFIG,
 )
 from usv_avoidance.simulation_runner import (
     list_scenarios,
@@ -49,10 +51,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--decision-delay-s",
         type=float,
-        default=MANEUVER_DECISION_DELAY_S,
+        default=None,
         help=(
-            "Tiempo de observación previo a ordenar "
-            "la primera maniobra evasiva."
+            "Tiempo de observación previo a ordenar la primera "
+            "maniobra evasiva. Si no se indica, se utiliza el "
+            "valor definido en algorithm_config.py."
         ),
     )
 
@@ -666,17 +669,25 @@ def main() -> None:
         print_available_scenarios()
         return
 
+    algorithm_config = DEFAULT_ALGORITHM_CONFIG
+
+    if args.decision_delay_s is not None:
+        algorithm_config = replace(
+            DEFAULT_ALGORITHM_CONFIG,
+            maneuver_decision_delay_s=(
+                args.decision_delay_s
+            ),
+        )
+
     try:
         result = run_scenario(
             scenario_name=args.scenario,
             save_results=True,
-            maneuver_decision_delay_s=(
-                args.decision_delay_s
-            ),
             playback_delay_s=0.0,
+            algorithm_config=algorithm_config,
         )
 
-    except FileNotFoundError as error:
+    except (FileNotFoundError, ValueError) as error:
         raise SystemExit(str(error)) from error
 
     for step in result.get("steps", []):

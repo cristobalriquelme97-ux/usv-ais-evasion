@@ -6,6 +6,10 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from usv_avoidance.algorithm_config import (
+    AlgorithmConfig,
+    DEFAULT_ALGORITHM_CONFIG,
+)
 from usv_avoidance.ais_adapter import AisNmeaReceiver
 from usv_avoidance.avoidance import recommend_avoidance_maneuver
 from usv_avoidance.cpa_tcpa import latlon_to_xy_m
@@ -30,7 +34,6 @@ from usv_avoidance.replanning import (
 )
 
 from usv_avoidance.scenario_config import (
-    DELAY_S,
     OUTPUT_FILE,
     PROJECT_ROOT,
     SCENARIOS_DIR,
@@ -41,14 +44,7 @@ from usv_avoidance.scenario_config import (
     USV_LON0,
     USV_SOG_KN,
     USV_TURN_RATE_DEG_S,
-    MANEUVER_DECISION_DELAY_S,
-)
-
-
-SAFETY_RADIUS_M = 50.0
-TIME_HORIZON_S = 300.0
-TRACKER_MAX_AGE_S = 60.0
-ROUTE_RECOVERY_TOLERANCE_DEG = 3.0
+    )
 
 MANIFEST_PATH = SCENARIOS_DIR / "scenario_manifest.json"
 
@@ -115,11 +111,11 @@ def resolve_scenario_file(scenario_name: str | None = None) -> Path:
 def run_scenario(
     scenario_name: str | None = None,
     save_results: bool = False,
-    maneuver_decision_delay_s: float = (
-        MANEUVER_DECISION_DELAY_S
-    ),
+    maneuver_decision_delay_s: float | None = None,
     playback_delay_s: float = 0.0,
+    algorithm_config: AlgorithmConfig | None = None,
 ) -> dict[str, Any]:
+    
     """
     Ejecuta el motor principal de simulación del algoritmo.
 
@@ -135,30 +131,55 @@ def run_scenario(
     scenario_file = resolve_scenario_file(scenario_name)
     scenario_stem = scenario_file.stem
 
+    config = (
+        algorithm_config
+        if algorithm_config is not None
+        else DEFAULT_ALGORITHM_CONFIG
+    )
+
+    if maneuver_decision_delay_s is None:
+        effective_maneuver_decision_delay_s = (
+            config.maneuver_decision_delay_s
+        )
+    else:
+        effective_maneuver_decision_delay_s = float(
+            maneuver_decision_delay_s
+        )
+
+        if effective_maneuver_decision_delay_s < 0.0:
+            raise ValueError(
+                "maneuver_decision_delay_s no puede ser negativo."
+            )
+
+
     source = NmeaFileSource(
         file_path=scenario_file,
         delay_s=max(0.0, playback_delay_s),
     )
 
     receiver = AisNmeaReceiver(strict_checksum=True)
-    tracker = TargetTracker(max_age_s=TRACKER_MAX_AGE_S)
+    tracker = TargetTracker(
+    max_age_s=config.tracker_max_age_s,
+    )
     state_machine = NavigationStateMachine(
         config=StateMachineConfig(
             maneuver_decision_delay_s=(
-                maneuver_decision_delay_s
+                effective_maneuver_decision_delay_s
             ),
         )
     )
 
     route_manager = RouteManager(
         original_course_deg=USV_COG_DEG,
-        recovery_tolerance_deg=ROUTE_RECOVERY_TOLERANCE_DEG,
+        recovery_tolerance_deg=(
+            config.route_recovery_tolerance_deg
+        ),
     )
 
     metrics = SimulationMetrics(
         scenario_name=scenario_stem,
         original_course_deg=USV_COG_DEG,
-        safety_radius_m=SAFETY_RADIUS_M,
+        safety_radius_m=config.safety_radius_m,
     )
 
     ownship = {
@@ -219,8 +240,8 @@ def run_scenario(
             ownship=ownship,
             targets=active_targets,
             return_course_deg=route_manager.get_return_course(),
-            safety_radius_m=SAFETY_RADIUS_M,
-            time_horizon_s=TIME_HORIZON_S,
+            safety_radius_m=config.safety_radius_m,
+            time_horizon_s=config.time_horizon_s,
         )
 
         critical_assessment = select_most_critical_assessment(assessments)
@@ -248,8 +269,8 @@ def run_scenario(
                 active_evasive_course_deg=(
                     active_evasive_course_deg
                 ),
-                safety_radius_m=SAFETY_RADIUS_M,
-                time_horizon_s=TIME_HORIZON_S,
+                safety_radius_m=config.safety_radius_m,
+                time_horizon_s=config.time_horizon_s,
                 dt_s=STEP_S,
                 turn_rate_deg_s=(
                     USV_TURN_RATE_DEG_S
@@ -291,8 +312,8 @@ def run_scenario(
                         ]
                     ),
                     state_info=state_info,
-                    safety_radius_m=SAFETY_RADIUS_M,
-                    time_horizon_s=TIME_HORIZON_S,
+                    safety_radius_m=config.safety_radius_m,
+                    time_horizon_s=config.time_horizon_s,
                     dt_s=STEP_S,
                     turn_rate_deg_s=(
                         USV_TURN_RATE_DEG_S
@@ -420,14 +441,21 @@ def run_scenario(
         },
         "config": {
             "project_root": str(PROJECT_ROOT),
-            "safety_radius_m": SAFETY_RADIUS_M,
-            "time_horizon_s": TIME_HORIZON_S,
+            "safety_radius_m": config.safety_radius_m,
+            "time_horizon_s": config.time_horizon_s,
+            "tracker_max_age_s": config.tracker_max_age_s,
+            "route_recovery_tolerance_deg": (
+                config.route_recovery_tolerance_deg
+            ),
             "step_s": STEP_S,
             "turn_rate_deg_s": USV_TURN_RATE_DEG_S,
             "maneuver_decision_delay_s": (
-                maneuver_decision_delay_s
+                effective_maneuver_decision_delay_s
             ),
-            "playback_delay_s": max(0.0, playback_delay_s),
+            "playback_delay_s": max(
+                0.0,
+                playback_delay_s,
+            ),
         },
         "steps": steps,
         "summary": metrics.build_summary(),

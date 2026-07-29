@@ -48,5 +48,5 @@ MANEUVER_DECISION_DELAY_S = 20.0
 # CONFIGURACIÓN GENERAL DEL ESCENARIO
 # ============================================================
 
-DURATION_S = 300
+DURATION_S = 200
 STEP_S = 5
