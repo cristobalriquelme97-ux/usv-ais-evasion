@@ -34,17 +34,12 @@ from usv_avoidance.replanning import (
 )
 
 from usv_avoidance.scenario_config import (
+    DEFAULT_SCENARIO_CONFIG,
     OUTPUT_FILE,
     PROJECT_ROOT,
     SCENARIOS_DIR,
-    STEP_S,
-    USV_COG_DEG,
-    USV_HEADING_DEG,
-    USV_LAT0,
-    USV_LON0,
-    USV_SOG_KN,
-    USV_TURN_RATE_DEG_S,
-    )
+    ScenarioConfig,
+)
 
 MANIFEST_PATH = SCENARIOS_DIR / "scenario_manifest.json"
 
@@ -130,6 +125,10 @@ def run_scenario(
     maneuver_decision_delay_s: float | None = None,
     playback_delay_s: float = 0.0,
     algorithm_config: AlgorithmConfig | None = None,
+    scenario_config: ScenarioConfig | None = None,
+    expected_encounter: str | None = None,
+    expected_ownship_role: str | None = None,
+    expected_action: str | None = None,
 ) -> dict[str, Any]:
     
     """
@@ -154,6 +153,12 @@ def run_scenario(
         algorithm_config
         if algorithm_config is not None
         else DEFAULT_ALGORITHM_CONFIG
+    )
+
+    scenario_cfg = (
+        scenario_config
+        if scenario_config is not None
+        else DEFAULT_SCENARIO_CONFIG
     )
 
     if maneuver_decision_delay_s is None:
@@ -189,7 +194,7 @@ def run_scenario(
     )
 
     route_manager = RouteManager(
-        original_course_deg=USV_COG_DEG,
+        original_course_deg=scenario_cfg.usv_cog_deg,
         recovery_tolerance_deg=(
             config.route_recovery_tolerance_deg
         ),
@@ -197,31 +202,37 @@ def run_scenario(
 
     metrics = SimulationMetrics(
         scenario_name=scenario_stem,
-        original_course_deg=USV_COG_DEG,
+        original_course_deg=scenario_cfg.usv_cog_deg,
         safety_radius_m=config.safety_radius_m,
-        expected_encounter=scenario_metadata.get(
-            "expected_encounter"
+        expected_encounter=(
+            expected_encounter
+            if expected_encounter is not None
+            else scenario_metadata.get("expected_encounter")
         ),
-        expected_ownship_role=scenario_metadata.get(
-            "expected_ownship_role"
+        expected_ownship_role=(
+            expected_ownship_role
+            if expected_ownship_role is not None
+            else scenario_metadata.get("expected_ownship_role")
         ),
-        expected_action=scenario_metadata.get(
-            "expected_action"
+        expected_action=(
+            expected_action
+            if expected_action is not None
+            else scenario_metadata.get("expected_action")
         ),
     )
 
     ownship = {
-        "lat": USV_LAT0,
-        "lon": USV_LON0,
-        "sog_kn": USV_SOG_KN,
-        "cog_deg": USV_COG_DEG,
-        "heading_deg": USV_HEADING_DEG,
+        "lat": scenario_cfg.usv_lat0,
+        "lon": scenario_cfg.usv_lon0,
+        "sog_kn": scenario_cfg.usv_sog_kn,
+        "cog_deg": scenario_cfg.usv_cog_deg,
+        "heading_deg": scenario_cfg.usv_heading_deg,
         "timestamp": 0.0,
     }
 
     active_evasive_course_deg = None
     active_avoidance_decision = None
-    commanded_course_deg = USV_COG_DEG
+    commanded_course_deg = scenario_cfg.usv_cog_deg
     replan_count = 0
     steps: list[dict[str, Any]] = []
 
@@ -231,7 +242,7 @@ def run_scenario(
 
 
     for frame in source.read_frames(
-        default_step_s=STEP_S,
+        default_step_s=scenario_cfg.step_s,
     ):
         # El tiempo de simulación queda determinado por el frame,
         # no por la cantidad de sentencias AIS que contiene.
@@ -314,9 +325,9 @@ def run_scenario(
                 ),
                 safety_radius_m=config.safety_radius_m,
                 time_horizon_s=config.time_horizon_s,
-                dt_s=STEP_S,
+                dt_s=scenario_cfg.step_s,
                 turn_rate_deg_s=(
-                    USV_TURN_RATE_DEG_S
+                    scenario_cfg.usv_turn_rate_deg_s
                 ),
             )
         )
@@ -357,9 +368,9 @@ def run_scenario(
                     state_info=state_info,
                     safety_radius_m=config.safety_radius_m,
                     time_horizon_s=config.time_horizon_s,
-                    dt_s=STEP_S,
+                    dt_s=scenario_cfg.step_s,
                     turn_rate_deg_s=(
-                        USV_TURN_RATE_DEG_S
+                        scenario_cfg.usv_turn_rate_deg_s
                     ),
                 )
             )
@@ -423,7 +434,7 @@ def run_scenario(
             active_evasive_course_deg = None
             active_avoidance_decision = None
             replan_count = 0
-            commanded_course_deg = USV_COG_DEG
+            commanded_course_deg = scenario_cfg.usv_cog_deg
 
         elif current_state == "ASSESSING_TARGET":
             commanded_course_deg = ownship["cog_deg"]
@@ -447,6 +458,8 @@ def run_scenario(
         step = _build_step(
             ownship=ownship,
             assessments=assessments,
+            ref_lat=scenario_cfg.usv_lat0,
+            ref_lon=scenario_cfg.usv_lon0,
             critical_assessment=critical_assessment,
             state_info=state_info,
             commanded_course_deg=commanded_course_deg,
@@ -466,8 +479,8 @@ def run_scenario(
         ownship = advance_vessel_state_with_course_command(
             vessel=ownship,
             commanded_course_deg=commanded_course_deg,
-            dt_s=STEP_S,
-            turn_rate_deg_s=USV_TURN_RATE_DEG_S,
+            dt_s=scenario_cfg.step_s,
+            turn_rate_deg_s=scenario_cfg.usv_turn_rate_deg_s,
         )
 
     metric_paths = None
@@ -490,8 +503,8 @@ def run_scenario(
             "route_recovery_tolerance_deg": (
                 config.route_recovery_tolerance_deg
             ),
-            "step_s": STEP_S,
-            "turn_rate_deg_s": USV_TURN_RATE_DEG_S,
+            "step_s": scenario_cfg.step_s,
+            "turn_rate_deg_s": scenario_cfg.usv_turn_rate_deg_s,
             "maneuver_decision_delay_s": (
                 effective_maneuver_decision_delay_s
             ),
@@ -509,6 +522,8 @@ def run_scenario(
 def _build_step(
     ownship: Mapping[str, Any],
     assessments: list[Mapping[str, Any]],
+    ref_lat: float,
+    ref_lon: float,
     critical_assessment: Mapping[str, Any] | None,
     state_info: Mapping[str, Any],
     commanded_course_deg: float,
@@ -521,8 +536,8 @@ def _build_step(
     ownship_x_m, ownship_y_m = latlon_to_xy_m(
         lat=float(ownship["lat"]),
         lon=float(ownship["lon"]),
-        ref_lat=USV_LAT0,
-        ref_lon=USV_LON0,
+        ref_lat=ref_lat,
+        ref_lon=ref_lon,
     )
 
     targets = []
@@ -539,8 +554,8 @@ def _build_step(
         target_x_m, target_y_m = latlon_to_xy_m(
             lat=float(target["lat"]),
             lon=float(target["lon"]),
-            ref_lat=USV_LAT0,
-            ref_lon=USV_LON0,
+            ref_lat=ref_lat,
+            ref_lon=ref_lon,
         )
 
         cpa_result = assessment["cpa_result"]
