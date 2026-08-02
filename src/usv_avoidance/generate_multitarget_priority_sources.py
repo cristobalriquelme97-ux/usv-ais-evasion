@@ -27,7 +27,7 @@ SOURCE_DIR = SCENARIOS_DIR / "multitarget_sources"
 # Archivo definitivo que será utilizado por main.py,
 # simulation_runner.py y la interfaz.
 FINAL_SCENARIO_FILE = (
-    SCENARIOS_DIR / "multitarget_priority_test.txt"
+    SCENARIOS_DIR / "multitarget_MB4_replanning.txt"
 )
 
 
@@ -47,21 +47,25 @@ class TargetSourceConfig:
 
 
 TARGET_SOURCES = (
+    # Contacto inicialmente prioritario.
     TargetSourceConfig(
-        name="priority_target_1_far",
-        mmsi=725000101,
-        offset_east_m=450.0,
-        offset_north_m=450.0,
-        sog_kn=6.0,
-        cog_deg=270.0,
+        name="mb4_target_1_initial_priority",
+        mmsi=725000141,
+        offset_east_m=152.0,
+        offset_north_m=104.0,
+        sog_kn=5.6,
+        cog_deg=325.0,
     ),
+
+    # Contacto secundario que pasa a ser prioritario
+    # durante la primera maniobra evasiva.
     TargetSourceConfig(
-        name="priority_target_2_near",
-        mmsi=725000102,
-        offset_east_m=300.0,
-        offset_north_m=300.0,
-        sog_kn=6.0,
-        cog_deg=270.0,
+        name="mb4_target_2_secondary_priority",
+        mmsi=725000142,
+        offset_east_m=256.0,
+        offset_north_m=695.0,
+        sog_kn=6.5,
+        cog_deg=215.0,
     ),
 )
 

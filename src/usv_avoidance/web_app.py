@@ -1,3 +1,4 @@
+#Interfaz grafica para la simulación de escenarios de evasión de obstáculos para USVs.
 from __future__ import annotations
 
 from flask import Flask, jsonify, render_template, request

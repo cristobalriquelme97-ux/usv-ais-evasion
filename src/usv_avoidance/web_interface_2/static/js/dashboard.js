@@ -91,6 +91,7 @@ async function publishCurrentStep(step) {
     }
 }
 
+
 function render() {
     if (!state.result || !state.result.steps.length) {
         clearCanvas();
@@ -190,11 +191,33 @@ function drawPlot(step) {
     clearCanvas();
 
     const steps = state.result.steps.slice(0, state.frame + 1);
-    const bounds = computeBounds(state.result.steps);
+
+    const nominalPath = buildNominalPath(
+        state.result.steps
+    );
+
+    const bounds = computeBounds(
+        state.result.steps,
+        nominalPath
+    );
+
     const project = makeProjector(bounds);
 
     drawGrid(project, bounds);
-    drawPath(steps.map((item) => item.ownship), "#1f6feb", project);
+
+    // Trayectoria nominal
+    drawDashedPath(
+        nominalPath.slice(0, state.frame + 1),
+        "#6b7280",
+        project
+    );
+
+    // Trayectoria ejecutada o evasiva
+    drawPath(
+        steps.map((item) => item.ownship),
+        "#1f6feb",
+        project
+    );
 
     const targetSeries = new Map();
     for (const item of steps) {
@@ -211,16 +234,82 @@ function drawPlot(step) {
     }
 
     const own = project(step.ownship.x_m, step.ownship.y_m);
-    drawSafetyCircle(own, bounds);
+    drawSafetyCircle(
+        own,
+        project.scale,
+        state.result.config.safety_radius_m
+    );
     drawVessel(own.x, own.y, step.ownship.cog_deg, "#1f6feb", "USV");
 
     for (const target of step.targets) {
         const point = project(target.x_m, target.y_m);
         drawVessel(point.x, point.y, target.cog_deg, target.risk ? "#c83737" : "#208a57", String(target.mmsi));
     }
+
+    const maneuverStartStep = findManeuverStartStep();
+
+    if (
+        maneuverStartStep
+        && maneuverStartStep.time_s <= step.time_s
+    ) {
+        const maneuverPoint = project(
+            maneuverStartStep.ownship.x_m,
+            maneuverStartStep.ownship.y_m
+        );
+
+        drawManeuverStart(
+            maneuverPoint,
+            maneuverStartStep.time_s
+        );
+    }
 }
 
-function computeBounds(steps) {
+function buildNominalPath(steps) {
+    if (!steps.length) {
+        return [];
+    }
+
+    const initialStep = steps[0];
+    const initialOwnship = initialStep.ownship;
+
+    const initialX = Number(initialOwnship.x_m);
+    const initialY = Number(initialOwnship.y_m);
+
+    const speedMps = (
+        Number(initialOwnship.sog_kn) * 0.514444
+    );
+
+    const courseRad = (
+        Number(initialOwnship.cog_deg)
+        * Math.PI
+        / 180
+    );
+
+    const initialTime = Number(initialStep.time_s);
+
+    return steps.map((step) => {
+        const elapsedTime = (
+            Number(step.time_s) - initialTime
+        );
+
+        return {
+            x_m: (
+                initialX
+                + speedMps
+                * Math.sin(courseRad)
+                * elapsedTime
+            ),
+            y_m: (
+                initialY
+                + speedMps
+                * Math.cos(courseRad)
+                * elapsedTime
+            ),
+        };
+    });
+}
+
+function computeBounds(steps, extraPoints = []) {
     const points = [];
 
     for (const step of steps) {
@@ -229,6 +318,8 @@ function computeBounds(steps) {
             points.push(target);
         }
     }
+
+    points.push(...extraPoints);
 
     const xs = points.map((point) => point.x_m);
     const ys = points.map((point) => point.y_m);
@@ -331,16 +422,66 @@ function drawPath(points, color, project) {
     ctx.restore();
 }
 
-function drawSafetyCircle(center, bounds) {
-    const radius = state.result.config.safety_radius_m * makeProjector(bounds).scale;
+function drawDashedPath(points, color, project) {
+    if (!points.length) {
+        return;
+    }
+
     ctx.save();
-    ctx.strokeStyle = "rgba(200, 55, 55, .35)";
-    ctx.fillStyle = "rgba(200, 55, 55, .06)";
+
+    ctx.strokeStyle = color;
     ctx.lineWidth = 2;
+    ctx.setLineDash([10, 7]);
+
     ctx.beginPath();
-    ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+
+    points.forEach((point, index) => {
+        const projected = project(
+            point.x_m,
+            point.y_m
+        );
+
+        if (index === 0) {
+            ctx.moveTo(projected.x, projected.y);
+        } else {
+            ctx.lineTo(projected.x, projected.y);
+        }
+    });
+
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawSafetyCircle(center, scale, safetyRadiusM) {
+    const radiusPixels = safetyRadiusM * scale;
+
+    ctx.save();
+
+    ctx.setLineDash([8, 6]);
+    ctx.strokeStyle = "rgba(200, 55, 55, 0.8)";
+    ctx.fillStyle = "rgba(200, 55, 55, 0.06)";
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.arc(
+        center.x,
+        center.y,
+        radiusPixels,
+        0,
+        Math.PI * 2
+    );
     ctx.fill();
     ctx.stroke();
+
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#7a2020";
+    ctx.font = "12px Segoe UI";
+    ctx.fillText(
+        `Ds = ${safetyRadiusM.toFixed(0)} m`,
+        center.x + radiusPixels + 6,
+        center.y
+    );
+
     ctx.restore();
 }
 
@@ -365,6 +506,52 @@ function drawVessel(x, y, courseDeg, color, label) {
     ctx.fillStyle = "#17212b";
     ctx.font = "12px Segoe UI";
     ctx.fillText(label, x + 12, y - 12);
+    ctx.restore();
+}
+
+function findManeuverStartStep() {
+    if (!state.result?.steps?.length) {
+        return null;
+    }
+
+    return state.result.steps.find((step, index, steps) => {
+        const currentState = step.state?.current_state;
+        const previousState = (
+            index > 0
+                ? steps[index - 1].state?.current_state
+                : null
+        );
+
+        return (
+            step.replanning?.trigger === "initial_plan"
+            || (
+                currentState === "AVOIDING_TARGET"
+                && previousState !== "AVOIDING_TARGET"
+            )
+        );
+    }) || null;
+}
+
+function drawManeuverStart(point, timeS) {
+    ctx.save();
+
+    ctx.fillStyle = "#d97706";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#7c2d12";
+    ctx.font = "12px Segoe UI";
+    ctx.fillText(
+        `Inicio maniobra: t = ${timeS.toFixed(0)} s`,
+        point.x + 12,
+        point.y - 10
+    );
+
     ctx.restore();
 }
 

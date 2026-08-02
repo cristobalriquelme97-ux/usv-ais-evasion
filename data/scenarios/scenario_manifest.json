@@ -131,6 +131,30 @@
             "output_file": "close_crossing_starboard_risk_nmea.txt",
             "target_lat0": -33.02230203518224,
             "target_lon0": -71.62178213367304
+        },
+        {
+            "name": "multitarget_priority_test",
+            "description": "Encuentro con dos blancos en situación de cruce por estribor. El USV prioriza el contacto que presenta el mayor riesgo de colisión y ejecuta una maniobra para mantenerse apartado.",
+            "expected_encounter": "cruce",
+            "expected_ownship_role": "give_way",
+            "expected_action": "alter_course_starboard",
+            "output_file": "multitarget_priority_test.txt"
+        },
+        {
+            "name": "multitarget_MB1",
+            "description": "Encuentro con dos blancos en situación de cruce por ambas bandas. Prioriza blanco por estribor",
+            "expected_encounter": "cruce",
+            "expected_ownship_role": "give_way",
+            "expected_action": "alter_course_starboard",
+            "output_file": "multitarget_MB1_RIPA_priority.txt"
+        },
+        {
+            "name": "multitarget_MB4",
+            "description": "Encuentro con dos blancos en situación de cruce por estribor. Al efectuar primera maniobra evasiva, replanifica otra maniobra para segundo contacto.",
+            "expected_encounter": "cruce",
+            "expected_ownship_role": "give_way",
+            "expected_action": "alter_course_starboard",
+            "output_file": "multitarget_MB4_replanning.txt"
         }
     ]
 }
