@@ -86,6 +86,7 @@ class NavigationStateMachine:
         assessment: Mapping[str, Any] | None,
         route_recovered: bool = False,
         current_time_s: float = 0.0,
+        global_return_course_safe: bool = False,
     ) -> dict[str, Any]:
         """
         Actualiza el estado del algoritmo.
@@ -161,22 +162,9 @@ class NavigationStateMachine:
         cpa_safe = cpa_m >= safety_radius_m
         target_passed_cpa = tcpa_s < 0.0
 
-        return_cpa_result = assessment.get("return_cpa_result")
-
-        return_course_safe = False
-
-        if return_cpa_result is not None:
-            return_cpa_m = float(return_cpa_result.get("cpa_m", 0.0))
-            return_safety_radius_m = float(return_cpa_result.get("safety_radius_m", 50.0))
-
-            return_course_safe = return_cpa_m >= return_safety_radius_m
-
         target_clear = (
             not risk
-            and (
-                target_passed_cpa
-                or return_course_safe
-            )
+            and global_return_course_safe
         )
 
         reason = "Estado mantenido."

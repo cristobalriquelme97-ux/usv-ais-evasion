@@ -262,7 +262,46 @@ function drawPlot(step) {
             maneuverStartStep.time_s
         );
     }
+
+    const replanningEvents = findReplanningEvents();
+
+    for (const event of replanningEvents) {
+        if (event.step.time_s > step.time_s) {
+            continue;
+        }
+
+        const point = project(
+            event.step.ownship.x_m,
+            event.step.ownship.y_m
+        );
+
+        drawReplanningMarker(
+            point,
+            event.step.time_s,
+            event.previousCourseDeg,
+            event.newCourseDeg
+        );
+    }
+
+    const returnStartStep = findReturnStartStep();
+
+    if (
+        returnStartStep
+        && returnStartStep.time_s <= step.time_s
+    ) {
+        const returnPoint = project(
+            returnStartStep.ownship.x_m,
+            returnStartStep.ownship.y_m
+        );
+
+        drawReturnStartMarker(
+            returnPoint,
+            returnStartStep.time_s,
+            returnStartStep.commanded_course_deg
+        );
+    }
 }
+
 
 function buildNominalPath(steps) {
     if (!steps.length) {
@@ -550,6 +589,150 @@ function drawManeuverStart(point, timeS) {
         `Inicio maniobra: t = ${timeS.toFixed(0)} s`,
         point.x + 12,
         point.y - 10
+    );
+
+    ctx.restore();
+}
+
+function findReplanningEvents() {
+    const steps = state.result?.steps || [];
+    const events = [];
+
+    let previousDecision = null;
+    let previousReplanCount = 0;
+
+    for (const step of steps) {
+        const decision = step.avoidance_decision;
+
+        if (
+            !decision
+            || decision.maneuver_required !== true
+        ) {
+            continue;
+        }
+
+        const currentReplanCount = Number(
+            decision.replan_count ?? 0
+        );
+
+        // Solo existe un nuevo evento cuando aumenta el contador.
+        if (currentReplanCount > previousReplanCount) {
+            events.push({
+                step,
+                previousCourseDeg: Number(
+                    previousDecision?.recommended_course_deg
+                    ?? step.ownship.cog_deg
+                ),
+                newCourseDeg: Number(
+                    decision.recommended_course_deg
+                ),
+                trigger: decision.plan_trigger,
+            });
+        }
+
+        previousDecision = decision;
+        previousReplanCount = Math.max(
+            previousReplanCount,
+            currentReplanCount
+        );
+    }
+
+    return events;
+}
+
+function drawReplanningMarker(
+    point,
+    timeS,
+    previousCourseDeg,
+    newCourseDeg
+) {
+    ctx.save();
+
+    ctx.translate(point.x, point.y);
+    ctx.rotate(Math.PI / 4);
+
+    ctx.fillStyle = "#7c3aed";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+
+    ctx.fillRect(-6, -6, 12, 12);
+    ctx.strokeRect(-6, -6, 12, 12);
+
+    ctx.restore();
+
+    ctx.save();
+
+    ctx.fillStyle = "#5b21b6";
+    ctx.font = "12px Segoe UI";
+
+    ctx.fillText(
+        `Replanificación: ${previousCourseDeg.toFixed(0)}° → ${newCourseDeg.toFixed(0)}°`,
+        point.x + 12,
+        point.y - 12
+    );
+
+    ctx.fillText(
+        `t = ${Number(timeS).toFixed(0)} s`,
+        point.x + 12,
+        point.y + 4
+    );
+
+    ctx.restore();
+}
+
+function findReturnStartStep() {
+    const steps = state.result?.steps || [];
+
+    return steps.find((step, index) => {
+        const currentState = step.state?.current_state;
+
+        const previousState = (
+            index > 0
+                ? steps[index - 1].state?.current_state
+                : null
+        );
+
+        return (
+            currentState === "RETURNING_TO_TRACK"
+            && previousState !== "RETURNING_TO_TRACK"
+        );
+    }) || null;
+}
+
+function drawReturnStartMarker(
+    point,
+    timeS,
+    nominalCourseDeg
+) {
+    ctx.save();
+
+    ctx.fillStyle = "#15803d";
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.rect(
+        point.x - 6,
+        point.y - 6,
+        12,
+        12
+    );
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#166534";
+    ctx.font = "12px Segoe UI";
+
+    ctx.fillText(
+        `Inicio retorno: ${Number(nominalCourseDeg).toFixed(0)}°`,
+        point.x + 12,
+        point.y - 12
+    );
+
+    ctx.fillText(
+        `t = ${Number(timeS).toFixed(0)} s`,
+        point.x + 12,
+        point.y + 4
     );
 
     ctx.restore();

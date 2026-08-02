@@ -11,7 +11,10 @@ from usv_avoidance.algorithm_config import (
     DEFAULT_ALGORITHM_CONFIG,
 )
 from usv_avoidance.ais_adapter import AisNmeaReceiver
-from usv_avoidance.avoidance import recommend_avoidance_maneuver
+from usv_avoidance.avoidance import (
+    recommend_avoidance_maneuver,
+    simulate_course_candidate_against_targets,
+)
 from usv_avoidance.cpa_tcpa import latlon_to_xy_m
 from usv_avoidance.collision_assessment import build_assessments
 from usv_avoidance.target_priority import (
@@ -304,10 +307,32 @@ def run_scenario(
             current_course_deg=ownship["cog_deg"],
         )
 
+        return_course_evaluation = None
+        global_return_course_safe = False
+
+        if critical_assessment is not None:
+            return_course_evaluation = (
+                simulate_course_candidate_against_targets(
+                    ownship=ownship,
+                    primary_target=critical_assessment["target"],
+                    targets=active_targets,
+                    candidate_course_deg=route_manager.get_return_course(),
+                    safety_radius_m=config.safety_radius_m,
+                    time_horizon_s=config.time_horizon_s,
+                    dt_s=scenario_cfg.step_s,
+                    turn_rate_deg_s=scenario_cfg.usv_turn_rate_deg_s,
+                )
+            )
+
+            global_return_course_safe = bool(
+                return_course_evaluation["candidate_is_safe"]
+            )
+
         state_info = state_machine.update(
             assessment=critical_assessment,
             route_recovered=route_recovered,
             current_time_s=frame.timestamp_s,
+            global_return_course_safe=global_return_course_safe,
         )
 
         current_state = state_info["current_state"]
