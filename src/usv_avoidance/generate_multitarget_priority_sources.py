@@ -27,7 +27,7 @@ SOURCE_DIR = SCENARIOS_DIR / "multitarget_sources"
 # Archivo definitivo que será utilizado por main.py,
 # simulation_runner.py y la interfaz.
 FINAL_SCENARIO_FILE = (
-    SCENARIOS_DIR / "multitarget_MB4_replanning.txt"
+    SCENARIOS_DIR / "multitarget_MB3_port_contact.txt"
 )
 
 
@@ -47,25 +47,27 @@ class TargetSourceConfig:
 
 
 TARGET_SOURCES = (
-    # Contacto inicialmente prioritario.
+    # MB-3 / Contacto prioritario por estribor.
+    # Genera una situación de cruce en la que el USV es give-way.
     TargetSourceConfig(
-        name="mb4_target_1_initial_priority",
-        mmsi=725000141,
-        offset_east_m=152.0,
-        offset_north_m=104.0,
-        sog_kn=5.6,
-        cog_deg=325.0,
+        name="mb3_target_1_starboard_give_way",
+        mmsi=725000131,
+        offset_east_m=300.0,
+        offset_north_m=300.0,
+        sog_kn=6.0,
+        cog_deg=270.0,
     ),
 
-    # Contacto secundario que pasa a ser prioritario
-    # durante la primera maniobra evasiva.
+    # MB-3 / Contacto secundario por babor.
+    # El USV es stand-on respecto de este contacto, pero debe
+    # considerarlo al evaluar la seguridad global de la evasión.
     TargetSourceConfig(
-        name="mb4_target_2_secondary_priority",
-        mmsi=725000142,
-        offset_east_m=256.0,
-        offset_north_m=695.0,
-        sog_kn=6.5,
-        cog_deg=215.0,
+        name="mb3_target_2_port_stand_on",
+        mmsi=725000132,
+        offset_east_m=-250.0,
+        offset_north_m=250.0,
+        sog_kn=5.0,
+        cog_deg=65.0,
     ),
 )
 

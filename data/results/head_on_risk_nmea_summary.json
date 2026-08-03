@@ -21,17 +21,17 @@
     "accion_seleccionada": "alter_course_starboard",
     "caida_seleccionada_deg": 10.0,
     "rumbo_seleccionado_deg": 10.0,
-    "distancia_minima_m": 59.78828249712595,
+    "distancia_minima_m": 57.10669169099509,
     "tiempo_distancia_minima_s": 145.0,
     "cpa_minimo_m": 4.754636958213155e-14,
     "tiempo_cpa_minimo_s": 20.0,
-    "margen_seguridad_minimo_m": 9.788282497125948,
+    "margen_seguridad_minimo_m": 7.106691690995092,
     "1era_deteccion_riesgo_s": 0.0,
     "1era_violacion_seguridad_s": null,
     "1era_evasion_s": 20.0,
-    "ultima_evasion_s": 115.0,
+    "ultima_evasion_s": 110.0,
     "tiempo_reaccion_s": 20.0,
-    "tiempo_total_evasion_s": 100.0,
+    "tiempo_total_evasion_s": 95.0,
     "tiempo_total_despeje_s": 10.0,
     "tiempo_total_retorno_ruta_s": 10.0,
     "desviacion_maxima_rumbo_usv_deg": 10.0,
@@ -72,7 +72,7 @@
     "mmsi_distancia_minima": 725000003,
     "mmsi_cpa_minimo": 725000003,
     "distancia_minima_por_mmsi_m": {
-        "725000003": 59.78828249712595
+        "725000003": 57.10669169099509
     },
     "cpa_minimo_por_mmsi_m": {
         "725000003": 4.754636958213155e-14

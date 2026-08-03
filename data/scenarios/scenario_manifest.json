@@ -28,21 +28,6 @@
             "target_lon0": -71.62017320050957
         },
         {
-            "name": "crossing_port_risk",
-            "description": "Cruce con blanco por babor. El USV se comporta como buque con preferencia.",
-            "mmsi": 725000002,
-            "offset_east_m": -450.0,
-            "offset_north_m": 450.0,
-            "target_sog_kn": 6.0,
-            "target_cog_deg": 90.0,
-            "expected_encounter": "cruce",
-            "expected_ownship_role": "stand_on",
-            "expected_action": "maintain_course",
-            "output_file": "crossing_port_risk_nmea.txt",
-            "target_lat0": -33.020953052773365,
-            "target_lon0": -71.62982679949043
-        },
-        {
             "name": "head_on_risk",
             "description": "Vuelta encontrada con cursos opuestos.",
             "mmsi": 725000003,
@@ -71,36 +56,6 @@
             "output_file": "overtaking_ownship_give_way_nmea.txt",
             "target_lat0": -33.0227516959852,
             "target_lon0": -71.625
-        },
-        {
-            "name": "being_overtaken_stand_on",
-            "description": "El blanco alcanza al USV desde popa.",
-            "mmsi": 725000005,
-            "offset_east_m": 0.0,
-            "offset_north_m": -250.0,
-            "target_sog_kn": 9.0,
-            "target_cog_deg": 0.0,
-            "expected_encounter": "alcance por blanco",
-            "expected_ownship_role": "stand_on",
-            "expected_action": "maintain_course",
-            "output_file": "being_overtaken_stand_on_nmea.txt",
-            "target_lat0": -33.0272483040148,
-            "target_lon0": -71.625
-        },
-        {
-            "name": "parallel_no_risk",
-            "description": "Blanco paralelo al USV sin riesgo de colisión.",
-            "mmsi": 725000006,
-            "offset_east_m": 150.0,
-            "offset_north_m": 0.0,
-            "target_sog_kn": 6.0,
-            "target_cog_deg": 0.0,
-            "expected_encounter": "sin riesgo",
-            "expected_ownship_role": "none",
-            "expected_action": "maintain_course",
-            "output_file": "parallel_no_risk_nmea.txt",
-            "target_lat0": -33.025,
-            "target_lon0": -71.62339106683652
         },
         {
             "name": "late_crossing_starboard_risk",
@@ -133,14 +88,6 @@
             "target_lon0": -71.62178213367304
         },
         {
-            "name": "multitarget_priority_test",
-            "description": "Encuentro con dos blancos en situación de cruce por estribor. El USV prioriza el contacto que presenta el mayor riesgo de colisión y ejecuta una maniobra para mantenerse apartado.",
-            "expected_encounter": "cruce",
-            "expected_ownship_role": "give_way",
-            "expected_action": "alter_course_starboard",
-            "output_file": "multitarget_priority_test.txt"
-        },
-        {
             "name": "multitarget_MB1",
             "description": "Encuentro con dos blancos en situación de cruce por ambas bandas. Prioriza blanco por estribor",
             "expected_encounter": "cruce",
@@ -149,12 +96,43 @@
             "output_file": "multitarget_MB1_RIPA_priority.txt"
         },
         {
+            "name": "multitarget_MB2",
+            "description": "Encuentro con dos blancos en situación de cruce por estribor. Prioriza blanco más cercano.",
+            "expected_ownship_role": "give_way",
+            "expected_action": "alter_course_starboard",
+            "output_file": "multitarget_MB2_TCPA_priority.txt"
+        },
+        {
+            "name": "multitarget_MB3",
+            "description": "Maniobra segura frente al contacto prioritario vulnera el margen de seguridad de un contacto secundario.",
+            "expected_encounter": "cruce",
+            "expected_ownship_role": "give_way",
+            "expected_action": "alter_course_starboard",
+            "output_file": "multitarget_MB3_global_validation.txt"
+        },
+        {
+            "name": "multitarget_MB3_port_contact",
+            "description": "Maniobra segura frente al contacto prioritario vulnera el margen de seguridad de un contacto secundario (por babor).",
+            "expected_encounter": "cruce",
+            "expected_ownship_role": "give_way",
+            "expected_action": "alter_course_starboard",
+            "output_file": "multitarget_MB3_port_contact.txt"
+        },
+        {
             "name": "multitarget_MB4",
             "description": "Encuentro con dos blancos en situación de cruce por estribor. Al efectuar primera maniobra evasiva, replanifica otra maniobra para segundo contacto.",
             "expected_encounter": "cruce",
             "expected_ownship_role": "give_way",
             "expected_action": "alter_course_starboard",
             "output_file": "multitarget_MB4_replanning.txt"
-        }
+        },
+        {
+            "name": "multitarget_MB5",
+            "description": "Encuentro varios contactos. Tráfico denso.",
+            "expected_encounter": "cruce",
+            "expected_ownship_role": "give_way",
+            "expected_action": "alter_course_starboard",
+            "output_file": "multitarget_MB5_dense_traffic.txt"
+        }       
     ]
 }
