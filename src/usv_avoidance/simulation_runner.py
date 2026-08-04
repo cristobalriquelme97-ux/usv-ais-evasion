@@ -331,22 +331,47 @@ def run_scenario(
             ).startswith("reduce_speed")
         )
 
-        # Si durante una reducción stand-on la clasificación cambia a
-        # give-way, se descarta el plan de velocidad y se fuerza el cálculo
-        # de la maniobra por rumbo que ya existía en el algoritmo.
-        if (
-            speed_only_plan_active
-            and critical_assessment is not None
-            and bool(
-                critical_assessment["classification"].get(
+        current_risk = False
+        current_role = None
+        current_should_maneuver = False
+
+        if critical_assessment is not None:
+            current_classification = (
+                critical_assessment["classification"]
+            )
+
+            current_risk = bool(
+                current_classification.get(
+                    "risk",
+                    False,
+                )
+            )
+            current_role = current_classification.get(
+                "ownship_role"
+            )
+            current_should_maneuver = bool(
+                current_classification.get(
                     "should_maneuver",
                     False,
                 )
             )
-            and critical_assessment["classification"].get(
-                "ownship_role"
-            ) == "give_way"
-        ):
+
+        cancel_stand_on_speed_plan = (
+            speed_only_plan_active
+            and current_risk
+            and (
+                current_role != "stand_on"
+                or current_should_maneuver
+                or not bool(
+                    state_info.get(
+                        "stand_on_mode_eligible",
+                        False,
+                    )
+                )
+            )
+        )
+
+        if cancel_stand_on_speed_plan:
             active_evasive_course_deg = None
             active_evasive_speed_kn = None
             active_avoidance_decision = None

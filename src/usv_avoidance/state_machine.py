@@ -77,6 +77,12 @@ class NavigationStateMachine:
     clear_counter: int = 0
     last_distance_by_mmsi: dict[int, float] = field(default_factory=dict)
     risk_detected_at_s: float | None = None
+
+    # Indica si el encuentro fue identificado como stand-on
+    # desde el inicio del episodio de riesgo.
+    stand_on_mode_eligible: bool = False
+
+    # Indica que ya se autorizó la reducción tardía.
     stand_on_emergency_active: bool = False
 
     def update(
@@ -97,6 +103,7 @@ class NavigationStateMachine:
 
         if assessment is None:
             self.risk_detected_at_s = None
+            self.stand_on_mode_eligible = False
             self.stand_on_emergency_active = False
 
             reason = "No hay blancos activos."
@@ -178,6 +185,13 @@ class NavigationStateMachine:
                 self.risk_detected_at_s = current_time_s
                 self.stand_on_emergency_active = False
 
+                # La reducción solo queda habilitada si el encuentro
+                # fue stand-on desde la primera detección del riesgo.
+                self.stand_on_mode_eligible = (
+                    ownship_role == "stand_on"
+                    and should_maneuver is False
+                )
+
                 if (
                     should_maneuver
                     and decision_delay_s <= 0.0
@@ -206,6 +220,7 @@ class NavigationStateMachine:
                         )
             else:
                 self.risk_detected_at_s = None
+                self.stand_on_mode_eligible = False
                 self.stand_on_emergency_active = False
                 reason = "Sin riesgo; navegación normal."
 
@@ -215,16 +230,22 @@ class NavigationStateMachine:
                 self.active_target_mmsi = None
                 self.clear_counter = 0
                 self.risk_detected_at_s = None
+                self.stand_on_mode_eligible = False
                 self.stand_on_emergency_active = False
                 reason = (
                     "El riesgo desapareció durante la evaluación."
                 )
+                
 
             elif risk and should_maneuver:
                 # Rama give-way original.
                 self.active_target_mmsi = target_mmsi
-                self.stand_on_emergency_active = False
 
+                # Si aparece obligación give-way, este episodio deja
+                # de ser elegible para reducción stand-on.
+                self.stand_on_mode_eligible = False
+                self.stand_on_emergency_active = False
+                
                 if self.risk_detected_at_s is None:
                     self.risk_detected_at_s = current_time_s
 
@@ -252,7 +273,12 @@ class NavigationStateMachine:
                         f"{delay_remaining_s:.1f} s."
                     )
 
-            elif risk and ownship_role == "stand_on":
+            elif (
+                risk
+                and ownship_role == "stand_on"
+                and should_maneuver is False
+                and self.stand_on_mode_eligible
+            ):
                 # Extensión acotada: el USV conserva inicialmente rumbo
                 # y velocidad. Si el blanco no resuelve el riesgo, el TCPA
                 # sigue disminuyendo hasta la ventana crítica y se autoriza
@@ -307,33 +333,68 @@ class NavigationStateMachine:
                 )
 
         elif self.state == NavigationState.AVOIDING_TARGET:
-            # Si la clasificación evoluciona a give-way, la lógica original
-            # de cambio de rumbo vuelve a tener prioridad.
+
+            # Si el encuentro pasa a give-way, se cancela la
+            # reducción stand-on y continúa la lógica original
+            # de maniobra por rumbo.
             if risk and should_maneuver:
+                self.stand_on_mode_eligible = False
                 self.stand_on_emergency_active = False
 
                 if target_mmsi != self.active_target_mmsi:
-                    previous_target_mmsi = self.active_target_mmsi
+                    previous_target_mmsi = (
+                        self.active_target_mmsi
+                    )
+
                     self.active_target_mmsi = target_mmsi
                     self.clear_counter = 0
+
                     reason = (
-                        "Cambió el contacto prioritario durante la "
-                        "evasión: "
-                        f"{previous_target_mmsi} → {target_mmsi}."
+                        "Cambió el contacto prioritario durante "
+                        "la evasión: "
+                        f"{previous_target_mmsi} → "
+                        f"{target_mmsi}."
                     )
                 else:
-                    reason = "Se mantiene estado evasivo."
+                    reason = (
+                        "El encuentro requiere maniobra give-way; "
+                        "se cancela la reducción stand-on."
+                    )
 
-            elif risk and self.stand_on_emergency_active:
+            # La reducción solo se mantiene si el rol continúa
+            # siendo stand-on.
+            elif (
+                risk
+                and ownship_role == "stand_on"
+                and should_maneuver is False
+                and self.stand_on_mode_eligible
+                and self.stand_on_emergency_active
+            ):
                 reason = (
                     "Se mantiene la reducción tardía de velocidad "
                     "del buque stand-on."
+                )
+
+            # Si todavía existe riesgo, pero el rol ya no es
+            # stand-on ni give-way, se cancela la reducción.
+            elif risk:
+                self.state = NavigationState.ASSESSING_TARGET
+                self.active_target_mmsi = target_mmsi
+                self.clear_counter = 0
+                self.stand_on_mode_eligible = False
+                self.stand_on_emergency_active = False
+
+                reason = (
+                    "El rol dejó de ser stand-on; se cancela "
+                    "la reducción de velocidad y se vuelve "
+                    "a evaluación."
                 )
 
             elif target_clear:
                 self.state = NavigationState.CLEARING_TARGET
                 self.clear_counter = 1
                 self.stand_on_emergency_active = False
+
                 reason = "El blanco comienza a quedar claro."
 
             else:
@@ -476,5 +537,8 @@ class NavigationStateMachine:
             ),
             "stand_on_emergency_active": (
                 self.stand_on_emergency_active
+            ),
+            "stand_on_mode_eligible": (
+                self.stand_on_mode_eligible
             ),
         }

@@ -142,7 +142,7 @@ def simulate_course_candidate_against_targets(
     safety_radius_m: float,
     time_horizon_s: float,
     dt_s: float,
-    turn_rate_deg_s: float,
+    turn_rate_deg_s: float = 10.0,
 ) -> dict[str, Any]:
     """Evalúa un mismo rumbo candidato frente a todos los contactos."""
 
@@ -546,7 +546,20 @@ def recommend_avoidance_maneuver(
             "candidate_results": [],
         }
 
-    if ownship_role == "stand_on" and stand_on_emergency:
+    stand_on_reduction_allowed = (
+        current_state == "AVOIDING_TARGET"
+        and ownship_role == "stand_on"
+        and should_maneuver is False
+        and stand_on_emergency
+        and bool(
+            state_info.get(
+                "stand_on_mode_eligible",
+                False,
+            )
+        )
+    )
+
+    if stand_on_reduction_allowed:
         candidate_results: list[dict[str, Any]] = []
 
         # Se prueba primero la reducción menos intrusiva.

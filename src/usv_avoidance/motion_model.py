@@ -61,30 +61,51 @@ def update_speed_towards_command(
     dt_s: float,
 ) -> float:
     """
-    Actualiza progresivamente la velocidad hacia la velocidad ordenada.
+    Actualiza la velocidad hacia la velocidad ordenada.
 
-    La función sirve tanto para disminuir la velocidad durante la acción
-    stand-on como para recuperarla posteriormente al retornar al track.
+    - La disminución de velocidad es prácticamente instantánea,
+      representando el comportamiento de una embarcación liviana
+      tipo Zodiac.
+    - El aumento o recuperación de velocidad continúa siendo gradual.
     """
 
-    current_speed_kn = max(0.0, float(current_speed_kn))
-    commanded_speed_kn = max(0.0, float(commanded_speed_kn))
+    current_speed_kn = max(
+        0.0,
+        float(current_speed_kn),
+    )
+    commanded_speed_kn = max(
+        0.0,
+        float(commanded_speed_kn),
+    )
 
     if speed_change_rate_kn_s <= 0.0:
         raise ValueError(
             "speed_change_rate_kn_s debe ser mayor que cero."
         )
 
-    max_change_kn = speed_change_rate_kn_s * dt_s
-    speed_error_kn = commanded_speed_kn - current_speed_kn
-
-    if abs(speed_error_kn) <= max_change_kn:
+    # Una orden de reducción se aplica en el mismo paso.
+    if commanded_speed_kn < current_speed_kn:
         return commanded_speed_kn
 
-    if speed_error_kn > 0.0:
-        return current_speed_kn + max_change_kn
+    # Si la velocidad ya es la ordenada, no se modifica.
+    if commanded_speed_kn == current_speed_kn:
+        return current_speed_kn
 
-    return max(0.0, current_speed_kn - max_change_kn)
+    # La recuperación o aceleración permanece gradual.
+    max_change_kn = (
+        float(speed_change_rate_kn_s)
+        * float(dt_s)
+    )
+
+    speed_error_kn = (
+        commanded_speed_kn
+        - current_speed_kn
+    )
+
+    if speed_error_kn <= max_change_kn:
+        return commanded_speed_kn
+
+    return current_speed_kn + max_change_kn
 
 
 def advance_vessel_state_with_course_command(

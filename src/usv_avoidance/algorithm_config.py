@@ -50,8 +50,10 @@ class AlgorithmConfig:
         0.25,
     )
 
-    # Razón máxima de variación de velocidad simulada.
-    # Por ejemplo, 0.10 kn/s permite variar 0.5 kn en un paso de 5 s.
+    # Razón máxima de aumento o recuperación de velocidad.
+    # La disminución de velocidad stand-on se aplica de forma
+    # prácticamente instantánea para representar una embarcación
+    # liviana tipo Zodiac.
     speed_change_rate_kn_s: float = 0.10
 
     def __post_init__(self) -> None:
