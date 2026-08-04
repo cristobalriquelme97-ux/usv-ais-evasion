@@ -8,6 +8,7 @@ const stateNames = {
     ASSESSING_TARGET: "Evaluando blanco",
     RISK_DETECTED: "Riesgo detectado",
     EVALUATING_MANEUVER: "Evaluando maniobra",
+    CLEARING_TARGET: "Confirmando despeje del blanco",
     AVOIDING_TARGET: "Maniobra de evasión",
     MONITORING_CPA: "Verificando separación",
     MONITORING_PMA: "Verificando separación",
@@ -18,17 +19,25 @@ const stateNames = {
 
 const encounterNames = {
     HEAD_ON: "Vuelta encontrada",
+
+    CROSSING: "Cruce",
     CROSSING_STARBOARD: "Cruce por estribor",
     CROSSING_PORT: "Cruce por babor",
+
     OVERTAKING: "Alcance",
     BEING_OVERTAKEN: "Siendo alcanzado",
     SAFE: "Sin riesgo de colisión",
+
+    UNDEFINED: "Encuentro no determinado",
     UNKNOWN: "Encuentro no determinado",
 };
 
 
 const actionNames = {
     TURN_STARBOARD: "Caer a estribor",
+    TURN_STARBOARD_BEST_EFFORT:
+        "Caer a estribor — maniobra de mejor esfuerzo",
+
     TURN_PORT: "Caer a babor",
     MAINTAIN_COURSE: "Mantener rumbo",
     REDUCE_SPEED: "Reducir velocidad",

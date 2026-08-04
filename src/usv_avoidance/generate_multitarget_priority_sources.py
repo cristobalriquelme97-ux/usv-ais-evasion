@@ -27,7 +27,7 @@ SOURCE_DIR = SCENARIOS_DIR / "multitarget_sources"
 # Archivo definitivo que será utilizado por main.py,
 # simulation_runner.py y la interfaz.
 FINAL_SCENARIO_FILE = (
-    SCENARIOS_DIR / "multitarget_MB3_port_contact.txt"
+    SCENARIOS_DIR / "multitarget_MB3_global_validation.txt"
 )
 
 
@@ -47,10 +47,10 @@ class TargetSourceConfig:
 
 
 TARGET_SOURCES = (
-    # MB-3 / Contacto prioritario por estribor.
-    # Genera una situación de cruce en la que el USV es give-way.
-    TargetSourceConfig(
-        name="mb3_target_1_starboard_give_way",
+    # MB-3 / Contacto prioritario.
+    # Cruce por estribor que obliga al USV a maniobrar.
+        TargetSourceConfig(
+        name="mb3_target_1_primary_crossing",
         mmsi=725000131,
         offset_east_m=300.0,
         offset_north_m=300.0,
@@ -58,16 +58,13 @@ TARGET_SOURCES = (
         cog_deg=270.0,
     ),
 
-    # MB-3 / Contacto secundario por babor.
-    # El USV es stand-on respecto de este contacto, pero debe
-    # considerarlo al evaluar la seguridad global de la evasión.
     TargetSourceConfig(
-        name="mb3_target_2_port_stand_on",
+        name="mb3_target_2_secondary_corridor",
         mmsi=725000132,
-        offset_east_m=-250.0,
-        offset_north_m=250.0,
-        sog_kn=5.0,
-        cog_deg=65.0,
+        offset_east_m=120.0,
+        offset_north_m=170.0,
+        sog_kn=4.0,
+        cog_deg=0.0,
     ),
 )
 

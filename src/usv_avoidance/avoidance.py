@@ -333,7 +333,7 @@ def recommend_avoidance_maneuver(
     time_horizon_s: float = 300.0,
     dt_s: float = 5.0,
     turn_rate_deg_s: float = 1.0,
-    starboard_changes_deg: tuple[float, ...] = (5.0, 10.0, 15.0, 20.0, 25.0),
+    starboard_changes_deg: tuple[float, ...] = (5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0, 45.0),
     targets: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """

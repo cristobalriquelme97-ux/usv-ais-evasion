@@ -594,12 +594,39 @@ function drawManeuverStart(point, timeS) {
     ctx.restore();
 }
 
+function shortestCourseDifferenceDeg(
+    firstCourseDeg,
+    secondCourseDeg
+) {
+    /*
+     * Calcula la diferencia angular mínima entre dos rumbos.
+     *
+     * Ejemplos:
+     * 25° y 25°  -> 0°
+     * 359° y 1°  -> 2°
+     * 25° y 30°  -> 5°
+     */
+    const first = Number(firstCourseDeg);
+    const second = Number(secondCourseDeg);
+
+    return Math.abs(
+        (second - first + 540) % 360 - 180
+    );
+}
+
+
 function findReplanningEvents() {
     const steps = state.result?.steps || [];
     const events = [];
 
     let previousDecision = null;
     let previousReplanCount = 0;
+
+    /*
+     * Diferencias iguales o menores a este valor se consideran
+     * conservación del mismo rumbo ordenado.
+     */
+    const courseChangeToleranceDeg = 0.5;
 
     for (const step of steps) {
         const decision = step.avoidance_decision;
@@ -615,22 +642,42 @@ function findReplanningEvents() {
             decision.replan_count ?? 0
         );
 
-        // Solo existe un nuevo evento cuando aumenta el contador.
         if (currentReplanCount > previousReplanCount) {
-            events.push({
-                step,
-                previousCourseDeg: Number(
-                    previousDecision?.recommended_course_deg
-                    ?? step.ownship.cog_deg
-                ),
-                newCourseDeg: Number(
-                    decision.recommended_course_deg
-                ),
-                trigger: decision.plan_trigger,
-            });
+            const previousCourseDeg = Number(
+                previousDecision?.recommended_course_deg
+                ?? step.ownship.cog_deg
+            );
+
+            const newCourseDeg = Number(
+                decision.recommended_course_deg
+            );
+
+            const courseDifferenceDeg = (
+                shortestCourseDifferenceDeg(
+                    previousCourseDeg,
+                    newCourseDeg
+                )
+            );
+
+            /*
+             * Solo se agrega un marcador cuando existe una
+             * modificación efectiva del rumbo ordenado.
+             */
+            if (
+                courseDifferenceDeg
+                > courseChangeToleranceDeg
+            ) {
+                events.push({
+                    step,
+                    previousCourseDeg,
+                    newCourseDeg,
+                    trigger: decision.plan_trigger,
+                });
+            }
         }
 
         previousDecision = decision;
+
         previousReplanCount = Math.max(
             previousReplanCount,
             currentReplanCount

@@ -47,8 +47,16 @@ def map_recommended_action(
     action_map = {
         "turn_starboard": "TURN_STARBOARD",
         "starboard": "TURN_STARBOARD",
+
+        "alter_course_starboard": "TURN_STARBOARD",
+        "alter_course_starboard_best_effort": (
+            "TURN_STARBOARD_BEST_EFFORT"
+        ),
+
         "turn_port": "TURN_PORT",
         "port": "TURN_PORT",
+        "alter_course_port": "TURN_PORT",
+
         "maintain_course": "MAINTAIN_COURSE",
         "reduce_speed": "REDUCE_SPEED",
         "stop": "STOP",

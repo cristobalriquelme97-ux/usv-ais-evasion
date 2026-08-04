@@ -19,26 +19,26 @@
     "ruta_recuperada_alguna_vez": true,
     "ruta_recuperada_despues_evasion": true,
     "accion_seleccionada": "alter_course_starboard_best_effort",
-    "caida_seleccionada_deg": 25.0,
-    "rumbo_seleccionado_deg": 25.0,
-    "distancia_minima_m": 23.140061912969138,
-    "tiempo_distancia_minima_s": 50.0,
+    "caida_seleccionada_deg": 45.0,
+    "rumbo_seleccionado_deg": 45.0,
+    "distancia_minima_m": 35.86295780810023,
+    "tiempo_distancia_minima_s": 45.0,
     "cpa_minimo_m": 0.0001743306425535217,
     "tiempo_cpa_minimo_s": 20.0,
-    "margen_seguridad_minimo_m": -26.859938087030862,
+    "margen_seguridad_minimo_m": -14.137042191899774,
     "1era_deteccion_riesgo_s": 0.0,
     "1era_violacion_seguridad_s": 40.0,
     "1era_evasion_s": 20.0,
-    "ultima_evasion_s": 55.0,
+    "ultima_evasion_s": 50.0,
     "tiempo_reaccion_s": 20.0,
-    "tiempo_total_evasion_s": 40.0,
+    "tiempo_total_evasion_s": 35.0,
     "tiempo_total_despeje_s": 10.0,
     "tiempo_total_retorno_ruta_s": 25.0,
-    "desviacion_maxima_rumbo_usv_deg": 25.0,
+    "desviacion_maxima_rumbo_usv_deg": 45.0,
     "cantidad_cambios_estado": 4,
     "cantidad_cambios_rumbo_ordenado": 2,
-    "variacion_total_rumbo_ordenado_deg": 50.0,
-    "max_cambio_rumbo_ordenado_deg": 25.0,
+    "variacion_total_rumbo_ordenado_deg": 90.0,
+    "max_cambio_rumbo_ordenado_deg": 45.0,
     "contactos_unicos_detectados": 1,
     "mmsi_detectados": [
         725000007
@@ -46,7 +46,7 @@
     "max_contactos_activos_simultaneos": 1,
     "promedio_contactos_activos": 1.0,
     "max_contactos_en_riesgo_simultaneos": 1,
-    "promedio_contactos_en_riesgo": 0.24390243902439024,
+    "promedio_contactos_en_riesgo": 0.21951219512195122,
     "muestras_multiblanco": 0,
     "tiempo_multiblanco_s": 0.0,
     "muestras_riesgo_simultaneo": 0,
@@ -61,8 +61,8 @@
     "replan_por_cambio_prioridad": 0,
     "replan_por_rumbo_inseguro": 0,
     "replan_por_ambas_causas": 0,
-    "muestras_rumbo_activo_inseguro": 7,
-    "tiempo_rumbo_activo_inseguro_s": 35.0,
+    "muestras_rumbo_activo_inseguro": 6,
+    "tiempo_rumbo_activo_inseguro_s": 30.0,
     "mmsi_contactos_limitantes": [
         725000007
     ],
@@ -72,7 +72,7 @@
     "mmsi_distancia_minima": 725000007,
     "mmsi_cpa_minimo": 725000007,
     "distancia_minima_por_mmsi_m": {
-        "725000007": 23.140061912969138
+        "725000007": 35.86295780810023
     },
     "cpa_minimo_por_mmsi_m": {
         "725000007": 0.0001743306425535217

@@ -209,6 +209,59 @@ def print_step(step: dict[str, Any]) -> None:
 
         print(f"Motivo: {reason}")
 
+        candidate_results = avoidance_decision.get(
+            "candidate_results",
+            [],
+        )
+
+        planned_at_s = avoidance_decision.get("planned_at_s")
+
+        # La decisión activa se conserva durante varios frames.
+        # Solo se imprime la tabla en el instante en que fue calculada.
+        is_planning_frame = (
+            planned_at_s is not None
+            and abs(float(planned_at_s) - float(time_s)) < 1e-6
+        )
+
+        if candidate_results and is_planning_frame:
+            print()
+            print("EVALUACIÓN DE MANIOBRAS CANDIDATAS")
+            print(
+                f"{'Caída':>8} | "
+                f"{'Rumbo':>8} | "
+                f"{'D mín. global':>14} | "
+                f"{'t mín.':>9} | "
+                f"{'Limitante':>12} | "
+                f"{'Segura':>7}"
+            )
+            print("-" * 78)
+
+            for candidate in candidate_results:
+                print(
+                    f"{candidate.get('course_change_deg', 0.0):>7.1f}° | "
+                    f"{candidate.get('candidate_course_deg', 0.0):>7.1f}° | "
+                    f"{candidate.get('projected_cpa_m', 0.0):>12.2f} m | "
+                    f"{candidate.get('projected_tcpa_s', 0.0):>7.1f} s | "
+                    f"{str(candidate.get('blocking_target_mmsi')):>12} | "
+                    f"{str(candidate.get('candidate_is_safe')):>7}"
+                )
+
+                for target_result in candidate.get(
+                    "per_target_results",
+                    [],
+                ):
+                    print(
+                        " " * 5
+                        + f"MMSI={target_result.get('target_mmsi')} | "
+                        + f"D mín.="
+                        + f"{target_result.get('min_distance_m', 0.0):.2f} m | "
+                        + f"t="
+                        + f"{target_result.get('time_at_min_distance_s', 0.0):.1f} s | "
+                        + f"Seguro={target_result.get('candidate_is_safe')}"
+                    )
+
+            print("-" * 78)
+
     active_course = step.get("active_course_evaluation")
 
     if active_course:
