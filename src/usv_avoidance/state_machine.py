@@ -23,53 +23,66 @@ class StateMachineConfig:
     clear_samples_required: int = 3
     min_distance_increase_m: float = 1.0
 
-    # Retardo ya utilizado por las maniobras give-way.
     maneuver_decision_delay_s: float = 0.0
 
-    # Retardo específico durante el cual un stand-on conserva rumbo
-    # y velocidad antes de aplicar una acción tardía de seguridad.
-    stand_on_action_delay_s: float = 20.0
+    # Tiempo mínimo antes de declarar que un blanco stand-on no actuó.
+    # Con reportes AIS cada 5 s, 10 s permite observar tres muestras:
+    # t=0, t=5 y t=10 s.
+    stand_on_action_delay_s: float = 10.0
 
-    # La acción tardía solo se inicia cuando el TCPA entra en esta ventana.
-    stand_on_critical_tcpa_s: float = 60.0
+    # Se comienza a considerar una acción tardía con mayor anticipación.
+    stand_on_critical_tcpa_s: float = 90.0
+
+    # Confirmación de blanco no cooperativo.
+    stand_on_confirmation_samples_required: int = 3
+    stand_on_course_change_threshold_deg: float = 5.0
+    stand_on_speed_change_threshold_kn: float = 0.5
+
+    # Condición física para abandonar una reducción stand-on.
+    stand_on_recovery_distance_m: float = 100.0
 
     def __post_init__(self) -> None:
         if self.clear_samples_required <= 0:
             raise ValueError(
                 "clear_samples_required debe ser mayor que cero."
             )
-
         if self.min_distance_increase_m < 0.0:
             raise ValueError(
                 "min_distance_increase_m no puede ser negativo."
             )
-
         if self.maneuver_decision_delay_s < 0.0:
             raise ValueError(
                 "maneuver_decision_delay_s no puede ser negativo."
             )
-
         if self.stand_on_action_delay_s < 0.0:
             raise ValueError(
                 "stand_on_action_delay_s no puede ser negativo."
             )
-
         if self.stand_on_critical_tcpa_s <= 0.0:
             raise ValueError(
                 "stand_on_critical_tcpa_s debe ser mayor que cero."
+            )
+        if self.stand_on_confirmation_samples_required <= 1:
+            raise ValueError(
+                "stand_on_confirmation_samples_required debe ser mayor que 1."
+            )
+        if self.stand_on_course_change_threshold_deg < 0.0:
+            raise ValueError(
+                "stand_on_course_change_threshold_deg no puede ser negativo."
+            )
+        if self.stand_on_speed_change_threshold_kn < 0.0:
+            raise ValueError(
+                "stand_on_speed_change_threshold_kn no puede ser negativo."
+            )
+        if self.stand_on_recovery_distance_m <= 0.0:
+            raise ValueError(
+                "stand_on_recovery_distance_m debe ser mayor que cero."
             )
 
 
 @dataclass
 class NavigationStateMachine:
-    """
-    Máquina de estados del algoritmo de navegación evasiva.
-
-    La lógica give-way existente se conserva. La única extensión es una
-    transición tardía para encuentros stand-on cuando el riesgo persiste y
-    el TCPA entra en una ventana crítica. El módulo de evasión interpreta
-    esa transición como una orden de reducción de velocidad.
-    """
+    """Máquina de estados del algoritmo de navegación evasiva."""
 
     config: StateMachineConfig = field(default_factory=StateMachineConfig)
     state: NavigationState = NavigationState.TRACKING_ROUTE
@@ -78,12 +91,16 @@ class NavigationStateMachine:
     last_distance_by_mmsi: dict[int, float] = field(default_factory=dict)
     risk_detected_at_s: float | None = None
 
-    # Indica si el encuentro fue identificado como stand-on
-    # desde el inicio del episodio de riesgo.
+    # El episodio comenzó con el USV como buque stand-on.
     stand_on_mode_eligible: bool = False
 
-    # Indica que ya se autorizó la reducción tardía.
+    # Ya existe una reducción activa y debe mantenerse hasta despeje físico.
     stand_on_emergency_active: bool = False
+
+    # Seguimiento para detectar si el blanco obligado a maniobrar no actúa.
+    stand_on_non_cooperative_counter: int = 0
+    stand_on_last_target_course_deg: float | None = None
+    stand_on_last_target_speed_kn: float | None = None
 
     def update(
         self,
@@ -96,16 +113,12 @@ class NavigationStateMachine:
 
         previous_state = self.state
         current_time_s = float(current_time_s)
-
         decision_delay_s = float(
             self.config.maneuver_decision_delay_s
         )
 
         if assessment is None:
-            self.risk_detected_at_s = None
-            self.stand_on_mode_eligible = False
-            self.stand_on_emergency_active = False
-
+            self._reset_stand_on_episode()
             reason = "No hay blancos activos."
 
             if self.state in (
@@ -132,13 +145,13 @@ class NavigationStateMachine:
         cpa_result = assessment["cpa_result"]
         classification = assessment["classification"]
 
-        target_mmsi = target.get(
+        target_mmsi_raw = target.get(
             "mmsi",
             cpa_result.get("target_mmsi"),
         )
         target_mmsi = (
-            int(target_mmsi)
-            if target_mmsi is not None
+            int(target_mmsi_raw)
+            if target_mmsi_raw is not None
             else None
         )
 
@@ -158,22 +171,23 @@ class NavigationStateMachine:
         distance_m = float(cpa_result.get("distance_m", inf))
         tcpa_s = float(cpa_result.get("tcpa_s", inf))
 
-        self._is_distance_increasing(
+        distance_increasing = self._is_distance_increasing(
             target_mmsi=target_mmsi,
             distance_m=distance_m,
         )
-
-        cpa_m = float(cpa_result.get("cpa_m", inf))
-        safety_radius_m = float(
-            cpa_result.get("safety_radius_m", 50.0)
-        )
-        cpa_safe = cpa_m >= safety_radius_m
         target_passed_cpa = tcpa_s < 0.0
 
-        # Se conserva la condición original de despeje.
+        # Despeje usado por las maniobras de rumbo existentes.
         target_clear = (
             not risk
             and global_return_course_safe
+        )
+
+        # Despeje más estricto para una reducción de velocidad stand-on.
+        stand_on_physical_clear = (
+            target_passed_cpa
+            and distance_increasing
+            and distance_m >= self.config.stand_on_recovery_distance_m
         )
 
         reason = "Estado mantenido."
@@ -185,43 +199,34 @@ class NavigationStateMachine:
                 self.risk_detected_at_s = current_time_s
                 self.stand_on_emergency_active = False
 
-                # La reducción solo queda habilitada si el encuentro
-                # fue stand-on desde la primera detección del riesgo.
                 self.stand_on_mode_eligible = (
                     ownship_role == "stand_on"
                     and should_maneuver is False
                 )
 
-                if (
-                    should_maneuver
-                    and decision_delay_s <= 0.0
-                ):
+                if self.stand_on_mode_eligible:
+                    self._initialize_stand_on_observation(target)
+                else:
+                    self._reset_non_cooperative_observation()
+
+                if should_maneuver and decision_delay_s <= 0.0:
                     self.state = NavigationState.AVOIDING_TARGET
                     reason = (
                         "Riesgo detectado y el USV debe maniobrar."
                     )
                 else:
                     self.state = NavigationState.ASSESSING_TARGET
-
-                    if should_maneuver:
+                    if ownship_role == "stand_on":
                         reason = (
-                            "Riesgo detectado; comienza el periodo "
-                            "de observación previo a la maniobra."
-                        )
-                    elif ownship_role == "stand_on":
-                        reason = (
-                            "Riesgo detectado; el USV mantiene rumbo "
-                            "y velocidad como buque stand-on."
+                            "Riesgo detectado; se observa si el blanco "
+                            "obligado a maniobrar adopta una acción efectiva."
                         )
                     else:
                         reason = (
-                            "Riesgo detectado; evaluando el rol "
-                            "del USV."
+                            "Riesgo detectado; evaluando el rol del USV."
                         )
             else:
-                self.risk_detected_at_s = None
-                self.stand_on_mode_eligible = False
-                self.stand_on_emergency_active = False
+                self._reset_stand_on_episode()
                 reason = "Sin riesgo; navegación normal."
 
         elif self.state == NavigationState.ASSESSING_TARGET:
@@ -229,23 +234,16 @@ class NavigationStateMachine:
                 self.state = NavigationState.TRACKING_ROUTE
                 self.active_target_mmsi = None
                 self.clear_counter = 0
-                self.risk_detected_at_s = None
-                self.stand_on_mode_eligible = False
-                self.stand_on_emergency_active = False
-                reason = (
-                    "El riesgo desapareció durante la evaluación."
-                )
-                
+                self._reset_stand_on_episode()
+                reason = "El riesgo desapareció durante la evaluación."
 
             elif risk and should_maneuver:
                 # Rama give-way original.
                 self.active_target_mmsi = target_mmsi
-
-                # Si aparece obligación give-way, este episodio deja
-                # de ser elegible para reducción stand-on.
                 self.stand_on_mode_eligible = False
                 self.stand_on_emergency_active = False
-                
+                self._reset_non_cooperative_observation()
+
                 if self.risk_detected_at_s is None:
                     self.risk_detected_at_s = current_time_s
 
@@ -254,23 +252,20 @@ class NavigationStateMachine:
                     current_time_s - self.risk_detected_at_s,
                 )
 
-                delay_remaining_s = max(
-                    0.0,
-                    decision_delay_s - observation_elapsed_s,
-                )
-
                 if observation_elapsed_s >= decision_delay_s:
                     self.state = NavigationState.AVOIDING_TARGET
                     self.clear_counter = 0
                     reason = (
-                        "Finalizó el periodo de observación; "
-                        "corresponde ejecutar la maniobra evasiva."
+                        "Corresponde ejecutar la maniobra evasiva give-way."
                     )
                 else:
+                    delay_remaining_s = max(
+                        0.0,
+                        decision_delay_s - observation_elapsed_s,
+                    )
                     reason = (
-                        "Observando la evolución del encuentro antes "
-                        "de maniobrar. Tiempo restante: "
-                        f"{delay_remaining_s:.1f} s."
+                        "Observando el encuentro give-way. "
+                        f"Tiempo restante: {delay_remaining_s:.1f} s."
                     )
 
             elif (
@@ -279,49 +274,47 @@ class NavigationStateMachine:
                 and should_maneuver is False
                 and self.stand_on_mode_eligible
             ):
-                # Extensión acotada: el USV conserva inicialmente rumbo
-                # y velocidad. Si el blanco no resuelve el riesgo, el TCPA
-                # sigue disminuyendo hasta la ventana crítica y se autoriza
-                # una reducción tardía de velocidad.
                 self.active_target_mmsi = target_mmsi
 
                 if self.risk_detected_at_s is None:
                     self.risk_detected_at_s = current_time_s
 
+                target_non_cooperative = (
+                    self._update_non_cooperative_confirmation(target)
+                )
                 observation_elapsed_s = max(
                     0.0,
                     current_time_s - self.risk_detected_at_s,
                 )
-                stand_on_delay_s = float(
-                    self.config.stand_on_action_delay_s
-                )
-                delay_elapsed = (
-                    observation_elapsed_s >= stand_on_delay_s
+                minimum_observation_elapsed = (
+                    observation_elapsed_s
+                    >= self.config.stand_on_action_delay_s
                 )
                 tcpa_is_critical = (
                     0.0 < tcpa_s
                     <= self.config.stand_on_critical_tcpa_s
                 )
 
-                if delay_elapsed and tcpa_is_critical:
+                if (
+                    target_non_cooperative
+                    and minimum_observation_elapsed
+                    and tcpa_is_critical
+                ):
                     self.state = NavigationState.AVOIDING_TARGET
                     self.clear_counter = 0
                     self.stand_on_emergency_active = True
                     reason = (
-                        "El blanco no resolvió el riesgo durante el "
-                        "periodo stand-on y el TCPA es crítico; se "
-                        "autoriza una reducción tardía de velocidad."
+                        "El blanco no mostró cambios efectivos de COG/SOG "
+                        "durante tres muestras y el TCPA es crítico; se "
+                        "mantendrá una reducción hasta el despeje físico."
                     )
                 else:
-                    remaining_s = max(
-                        0.0,
-                        stand_on_delay_s - observation_elapsed_s,
-                    )
                     reason = (
-                        "El USV mantiene rumbo y velocidad como "
-                        "stand-on. "
-                        f"Espera restante: {remaining_s:.1f} s; "
-                        f"TCPA actual: {tcpa_s:.1f} s."
+                        "El USV mantiene inicialmente rumbo y velocidad. "
+                        "Confirmaciones de blanco no cooperativo: "
+                        f"{self.stand_on_non_cooperative_counter}/"
+                        f"{self.config.stand_on_confirmation_samples_required}; "
+                        f"TCPA: {tcpa_s:.1f} s."
                     )
 
             else:
@@ -333,70 +326,57 @@ class NavigationStateMachine:
                 )
 
         elif self.state == NavigationState.AVOIDING_TARGET:
-
-            # Si el encuentro pasa a give-way, se cancela la
-            # reducción stand-on y continúa la lógica original
-            # de maniobra por rumbo.
-            if risk and should_maneuver:
-                self.stand_on_mode_eligible = False
-                self.stand_on_emergency_active = False
-
+            # Una reducción stand-on ya autorizada queda bloqueada hasta
+            # completar tres muestras de despeje físico. No se cancela por
+            # una reclasificación provocada por la propia reducción.
+            if self.stand_on_emergency_active:
                 if target_mmsi != self.active_target_mmsi:
-                    previous_target_mmsi = (
-                        self.active_target_mmsi
-                    )
-
+                    previous_target_mmsi = self.active_target_mmsi
+                    self.state = NavigationState.ASSESSING_TARGET
                     self.active_target_mmsi = target_mmsi
                     self.clear_counter = 0
-
+                    self._reset_stand_on_episode()
                     reason = (
-                        "Cambió el contacto prioritario durante "
-                        "la evasión: "
-                        f"{previous_target_mmsi} → "
-                        f"{target_mmsi}."
+                        "Cambió el contacto prioritario durante la reducción "
+                        f"stand-on: {previous_target_mmsi} → {target_mmsi}; "
+                        "se cancela el plan y se reevalúa."
                     )
+
+                elif stand_on_physical_clear:
+                    self.clear_counter += 1
+
+                    if (
+                        self.clear_counter
+                        >= self.config.clear_samples_required
+                    ):
+                        self.state = NavigationState.RETURNING_TO_TRACK
+                        self.stand_on_emergency_active = False
+                        self.stand_on_mode_eligible = False
+                        reason = (
+                            "El contacto pasó el CPA, se aleja y supera "
+                            f"{self.config.stand_on_recovery_distance_m:.0f} m "
+                            "durante tres muestras; se recupera velocidad."
+                        )
+                    else:
+                        reason = (
+                            "Manteniendo la reducción y confirmando despeje "
+                            f"físico ({self.clear_counter}/"
+                            f"{self.config.clear_samples_required})."
+                        )
                 else:
+                    self.clear_counter = 0
                     reason = (
-                        "El encuentro requiere maniobra give-way; "
-                        "se cancela la reducción stand-on."
+                        "Se mantiene la reducción stand-on hasta que el "
+                        "contacto pase el CPA, se aleje y supere la "
+                        f"distancia de recuperación de "
+                        f"{self.config.stand_on_recovery_distance_m:.0f} m."
                     )
 
-            # La reducción solo se mantiene si el rol continúa
-            # siendo stand-on.
-            elif (
-                risk
-                and ownship_role == "stand_on"
-                and should_maneuver is False
-                and self.stand_on_mode_eligible
-                and self.stand_on_emergency_active
-            ):
-                reason = (
-                    "Se mantiene la reducción tardía de velocidad "
-                    "del buque stand-on."
-                )
-
-            # Si todavía existe riesgo, pero el rol ya no es
-            # stand-on ni give-way, se cancela la reducción.
-            elif risk:
-                self.state = NavigationState.ASSESSING_TARGET
-                self.active_target_mmsi = target_mmsi
-                self.clear_counter = 0
-                self.stand_on_mode_eligible = False
-                self.stand_on_emergency_active = False
-
-                reason = (
-                    "El rol dejó de ser stand-on; se cancela "
-                    "la reducción de velocidad y se vuelve "
-                    "a evaluación."
-                )
-
+            # Lógica original de las maniobras por rumbo give-way.
             elif target_clear:
                 self.state = NavigationState.CLEARING_TARGET
                 self.clear_counter = 1
-                self.stand_on_emergency_active = False
-
                 reason = "El blanco comienza a quedar claro."
-
             else:
                 reason = "Se mantiene estado evasivo."
 
@@ -405,35 +385,19 @@ class NavigationStateMachine:
                 self.state = NavigationState.AVOIDING_TARGET
                 self.active_target_mmsi = target_mmsi
                 self.clear_counter = 0
-                self.stand_on_emergency_active = False
-                reason = (
-                    "El contacto continúa en riesgo; volver a evasión."
-                )
-
+                reason = "El contacto continúa en riesgo; volver a evasión."
             elif risk:
                 self.state = NavigationState.ASSESSING_TARGET
                 self.active_target_mmsi = target_mmsi
                 self.clear_counter = 0
-                self.stand_on_emergency_active = False
-                reason = (
-                    "El contacto continúa en riesgo; volver a evaluación."
-                )
-
+                reason = "El contacto continúa en riesgo; volver a evaluación."
             elif target_clear:
                 self.clear_counter += 1
-
-                if (
-                    self.clear_counter
-                    >= self.config.clear_samples_required
-                ):
+                if self.clear_counter >= self.config.clear_samples_required:
                     self.state = NavigationState.RETURNING_TO_TRACK
-                    reason = (
-                        "Blanco claro durante tres actualizaciones "
-                        "consecutivas."
-                    )
+                    reason = "Blanco claro durante tres actualizaciones."
                 else:
                     reason = "Confirmando que el blanco quedó claro."
-
             else:
                 self.clear_counter = 0
                 reason = "Aún no se confirma despeje del blanco."
@@ -443,27 +407,28 @@ class NavigationStateMachine:
                 self.state = NavigationState.AVOIDING_TARGET
                 self.active_target_mmsi = target_mmsi
                 self.clear_counter = 0
-                self.stand_on_emergency_active = False
-                reason = "Nuevo riesgo durante retorno al track."
+                self._reset_stand_on_episode()
+                reason = "Nuevo riesgo give-way durante retorno al track."
             elif risk:
                 self.state = NavigationState.ASSESSING_TARGET
                 self.active_target_mmsi = target_mmsi
                 self.clear_counter = 0
-                self.stand_on_emergency_active = False
+                self.risk_detected_at_s = current_time_s
+                self.stand_on_mode_eligible = (
+                    ownship_role == "stand_on"
+                    and should_maneuver is False
+                )
+                if self.stand_on_mode_eligible:
+                    self._initialize_stand_on_observation(target)
                 reason = "Nuevo blanco detectado durante retorno."
             elif route_recovered:
                 self.state = NavigationState.TRACKING_ROUTE
                 self.active_target_mmsi = None
                 self.clear_counter = 0
-                self.risk_detected_at_s = None
-                self.stand_on_emergency_active = False
+                self._reset_stand_on_episode()
                 reason = "Track recuperado; navegación normal."
             else:
                 reason = "Retornando al track o waypoint."
-
-        # Variables mantenidas para conservar trazabilidad con la versión
-        # original, aunque la condición de despeje sigue usando target_clear.
-        _ = cpa_safe, target_passed_cpa
 
         return self._build_result(
             previous_state,
@@ -471,13 +436,78 @@ class NavigationStateMachine:
             current_time_s,
         )
 
+    def _initialize_stand_on_observation(
+        self,
+        target: Mapping[str, Any],
+    ) -> None:
+        self.stand_on_non_cooperative_counter = 1
+        self.stand_on_last_target_course_deg = self._optional_float(
+            target.get("cog_deg")
+        )
+        self.stand_on_last_target_speed_kn = self._optional_float(
+            target.get("sog_kn")
+        )
+
+    def _update_non_cooperative_confirmation(
+        self,
+        target: Mapping[str, Any],
+    ) -> bool:
+        current_course = self._optional_float(target.get("cog_deg"))
+        current_speed = self._optional_float(target.get("sog_kn"))
+
+        previous_course = self.stand_on_last_target_course_deg
+        previous_speed = self.stand_on_last_target_speed_kn
+
+        course_changed = False
+        speed_changed = False
+
+        if current_course is not None and previous_course is not None:
+            course_changed = (
+                abs(self._angle_difference_deg(
+                    current_course,
+                    previous_course,
+                ))
+                >= self.config.stand_on_course_change_threshold_deg
+            )
+
+        if current_speed is not None and previous_speed is not None:
+            speed_changed = (
+                abs(current_speed - previous_speed)
+                >= self.config.stand_on_speed_change_threshold_kn
+            )
+
+        if course_changed or speed_changed:
+            # El blanco mostró una acción apreciable; se reinicia la cuenta.
+            self.stand_on_non_cooperative_counter = 0
+        else:
+            self.stand_on_non_cooperative_counter += 1
+
+        if current_course is not None:
+            self.stand_on_last_target_course_deg = current_course
+        if current_speed is not None:
+            self.stand_on_last_target_speed_kn = current_speed
+
+        return (
+            self.stand_on_non_cooperative_counter
+            >= self.config.stand_on_confirmation_samples_required
+        )
+
+    def _reset_non_cooperative_observation(self) -> None:
+        self.stand_on_non_cooperative_counter = 0
+        self.stand_on_last_target_course_deg = None
+        self.stand_on_last_target_speed_kn = None
+
+    def _reset_stand_on_episode(self) -> None:
+        self.risk_detected_at_s = None
+        self.stand_on_mode_eligible = False
+        self.stand_on_emergency_active = False
+        self._reset_non_cooperative_observation()
+
     def _is_distance_increasing(
         self,
         target_mmsi: int | None,
         distance_m: float,
     ) -> bool:
-        """Verifica si la distancia al blanco está aumentando."""
-
         if target_mmsi is None:
             return False
 
@@ -492,14 +522,28 @@ class NavigationStateMachine:
             > previous_distance + self.config.min_distance_increase_m
         )
 
+    @staticmethod
+    def _angle_difference_deg(
+        angle_a_deg: float,
+        angle_b_deg: float,
+    ) -> float:
+        return (angle_a_deg - angle_b_deg + 180.0) % 360.0 - 180.0
+
+    @staticmethod
+    def _optional_float(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
     def _build_result(
         self,
         previous_state: NavigationState,
         reason: str,
         current_time_s: float,
     ) -> dict[str, Any]:
-        """Construye una salida estándar para los demás módulos."""
-
         observation_elapsed_s = None
         decision_delay_remaining_s = None
 
@@ -508,7 +552,6 @@ class NavigationStateMachine:
                 0.0,
                 float(current_time_s) - self.risk_detected_at_s,
             )
-
             decision_delay_remaining_s = max(
                 0.0,
                 self.config.maneuver_decision_delay_s
@@ -526,14 +569,21 @@ class NavigationStateMachine:
             "maneuver_decision_delay_s": (
                 self.config.maneuver_decision_delay_s
             ),
-            "decision_delay_remaining_s": (
-                decision_delay_remaining_s
-            ),
+            "decision_delay_remaining_s": decision_delay_remaining_s,
             "stand_on_action_delay_s": (
                 self.config.stand_on_action_delay_s
             ),
             "stand_on_critical_tcpa_s": (
                 self.config.stand_on_critical_tcpa_s
+            ),
+            "stand_on_confirmation_samples_required": (
+                self.config.stand_on_confirmation_samples_required
+            ),
+            "stand_on_non_cooperative_counter": (
+                self.stand_on_non_cooperative_counter
+            ),
+            "stand_on_recovery_distance_m": (
+                self.config.stand_on_recovery_distance_m
             ),
             "stand_on_emergency_active": (
                 self.stand_on_emergency_active
@@ -542,3 +592,40 @@ class NavigationStateMachine:
                 self.stand_on_mode_eligible
             ),
         }
+
+
+def select_most_critical_assessment(
+    assessments: list[Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    """Selecciona el blanco más crítico entre varios blancos activos."""
+
+    if not assessments:
+        return None
+
+    def score(
+        assessment: Mapping[str, Any],
+    ) -> tuple[float, float, float, float]:
+        cpa_result = assessment["cpa_result"]
+        classification = assessment["classification"]
+
+        risk = bool(
+            classification.get(
+                "risk",
+                cpa_result.get("risk", False),
+            )
+        )
+        should_maneuver = bool(
+            classification.get("should_maneuver", False)
+        )
+        cpa_m = float(cpa_result.get("cpa_m", inf))
+        tcpa_s = float(cpa_result.get("tcpa_s", inf))
+        tcpa_priority = tcpa_s if tcpa_s >= 0.0 else inf
+
+        return (
+            0.0 if risk else 1.0,
+            0.0 if should_maneuver else 1.0,
+            tcpa_priority,
+            cpa_m,
+        )
+
+    return min(assessments, key=score)

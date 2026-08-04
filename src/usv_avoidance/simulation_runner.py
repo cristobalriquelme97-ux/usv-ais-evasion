@@ -186,6 +186,18 @@ def run_scenario(
             stand_on_critical_tcpa_s=(
                 config.stand_on_critical_tcpa_s
             ),
+            stand_on_confirmation_samples_required=(
+                config.stand_on_confirmation_samples_required
+            ),
+            stand_on_course_change_threshold_deg=(
+                config.stand_on_course_change_threshold_deg
+            ),
+            stand_on_speed_change_threshold_kn=(
+                config.stand_on_speed_change_threshold_kn
+            ),
+            stand_on_recovery_distance_m=(
+                config.stand_on_recovery_distance_m
+            ),
         )
     )
 
@@ -331,44 +343,25 @@ def run_scenario(
             ).startswith("reduce_speed")
         )
 
-        current_risk = False
-        current_role = None
-        current_should_maneuver = False
-
-        if critical_assessment is not None:
-            current_classification = (
-                critical_assessment["classification"]
+        # Una reducción stand-on ya autorizada no se cancela porque
+        # la propia maniobra cambie temporalmente la clasificación.
+        # state_machine.py mantiene la reducción hasta confirmar
+        # despeje físico o hasta que cambie el contacto prioritario.
+        stand_on_speed_plan_locked = bool(
+            state_info.get(
+                "stand_on_emergency_active",
+                False,
             )
-
-            current_risk = bool(
-                current_classification.get(
-                    "risk",
-                    False,
-                )
+            and state_info.get(
+                "stand_on_mode_eligible",
+                False,
             )
-            current_role = current_classification.get(
-                "ownship_role"
-            )
-            current_should_maneuver = bool(
-                current_classification.get(
-                    "should_maneuver",
-                    False,
-                )
-            )
+            and current_state == "AVOIDING_TARGET"
+        )
 
         cancel_stand_on_speed_plan = (
             speed_only_plan_active
-            and current_risk
-            and (
-                current_role != "stand_on"
-                or current_should_maneuver
-                or not bool(
-                    state_info.get(
-                        "stand_on_mode_eligible",
-                        False,
-                    )
-                )
-            )
+            and not stand_on_speed_plan_locked
         )
 
         if cancel_stand_on_speed_plan:
@@ -572,6 +565,18 @@ def run_scenario(
             ),
             "stand_on_critical_tcpa_s": (
                 config.stand_on_critical_tcpa_s
+            ),
+            "stand_on_confirmation_samples_required": (
+                config.stand_on_confirmation_samples_required
+            ),
+            "stand_on_course_change_threshold_deg": (
+                config.stand_on_course_change_threshold_deg
+            ),
+            "stand_on_speed_change_threshold_kn": (
+                config.stand_on_speed_change_threshold_kn
+            ),
+            "stand_on_recovery_distance_m": (
+                config.stand_on_recovery_distance_m
             ),
             "stand_on_speed_factors": list(
                 config.stand_on_speed_factors
