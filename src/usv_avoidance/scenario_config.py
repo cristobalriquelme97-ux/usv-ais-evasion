@@ -16,7 +16,7 @@ SCENARIOS_DIR = PROJECT_ROOT / "data" / "scenarios"
 # ARCHIVO DE SALIDA AIS/NMEA PARA GENERACIÓN MANUAL
 # ============================================================
 
-OUTPUT_FILE = SCENARIOS_DIR / "crossing_starboard_risk_nmea.txt"
+OUTPUT_FILE = SCENARIOS_DIR / "mc_crossing_starboard_run14.txt"
 DELAY_S = 0.5
 
 
@@ -24,11 +24,12 @@ DELAY_S = 0.5
 # CONFIGURACIÓN MANUAL DEL BLANCO AIS
 # ============================================================
 
-TARGET_MMSI = 725000001
-TARGET_LAT0 = -33.020503
-TARGET_LON0 = -71.619637
-TARGET_SOG_KN = 6.0
-TARGET_COG_DEG = 270.0
+TARGET_MMSI = 725100014
+
+TARGET_LAT0 = -33.0249508015
+TARGET_LON0 = -71.6224856243
+TARGET_SOG_KN = 6.8083284678
+TARGET_COG_DEG = 298.0687330349
 TARGET_HEADING_DEG = TARGET_COG_DEG
 
 
@@ -50,7 +51,7 @@ class ScenarioConfig:
     usv_sog_kn: float = 6.0
     usv_cog_deg: float = 0.0
     usv_heading_deg: float = 0.0
-    usv_turn_rate_deg_s: float = 1.0
+    usv_turn_rate_deg_s: float = 10.0
 
     duration_s: int = 200
     step_s: int = 5

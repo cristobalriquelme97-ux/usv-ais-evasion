@@ -1,5 +1,5 @@
-#Permite actualizar la posición del propio USV y calcular el CPA/TCPA con cada
-#objetivo detectado en cada iteración del bucle principal.
+# Permite actualizar la posición del propio USV y calcular el CPA/TCPA con cada
+# objetivo detectado en cada iteración del bucle principal.
 
 from __future__ import annotations
 
@@ -9,30 +9,22 @@ from typing import Any, Mapping
 from usv_avoidance.cpa_tcpa import EARTH_RADIUS_M, KNOT_TO_MPS
 
 
-
 def shortest_angle_difference_deg(
     target_deg: float,
     current_deg: float,
 ) -> float:
     """
-    Calcula la diferencia angular más corta entre dos rumbos.
+    Calcula la diferencia angular más corta entre dos rumbos o cursos.
 
     Retorna un valor entre -180° y +180°.
-
-    Positivo:
-        giro a estribor.
-
-    Negativo:
-        giro a babor.
+    Positivo representa giro a estribor y negativo giro a babor.
     """
 
     return (target_deg - current_deg + 180.0) % 360.0 - 180.0
 
 
 def normalize_angle_360(angle_deg: float) -> float:
-    """
-    Normaliza un ángulo al rango 0° a 360°.
-    """
+    """Normaliza un ángulo al rango 0° a 360°."""
 
     return angle_deg % 360.0
 
@@ -43,18 +35,7 @@ def update_course_towards_command(
     turn_rate_deg_s: float,
     dt_s: float,
 ) -> float:
-    """
-    Actualiza progresivamente el rumbo actual hacia un rumbo ordenado.
-
-    Ejemplo:
-    - rumbo actual: 0°
-    - rumbo ordenado: 15°
-    - razón de caída: 1°/s
-    - dt: 5 s
-
-    Resultado:
-    - nuevo rumbo: 5°
-    """
+    """Actualiza progresivamente el rumbo hacia el rumbo ordenado."""
 
     angle_error = shortest_angle_difference_deg(
         target_deg=commanded_course_deg,
@@ -73,18 +54,50 @@ def update_course_towards_command(
     return normalize_angle_360(new_course)
 
 
+def update_speed_towards_command(
+    current_speed_kn: float,
+    commanded_speed_kn: float,
+    speed_change_rate_kn_s: float,
+    dt_s: float,
+) -> float:
+    """
+    Actualiza progresivamente la velocidad hacia la velocidad ordenada.
+
+    La función sirve tanto para disminuir la velocidad durante la acción
+    stand-on como para recuperarla posteriormente al retornar al track.
+    """
+
+    current_speed_kn = max(0.0, float(current_speed_kn))
+    commanded_speed_kn = max(0.0, float(commanded_speed_kn))
+
+    if speed_change_rate_kn_s <= 0.0:
+        raise ValueError(
+            "speed_change_rate_kn_s debe ser mayor que cero."
+        )
+
+    max_change_kn = speed_change_rate_kn_s * dt_s
+    speed_error_kn = commanded_speed_kn - current_speed_kn
+
+    if abs(speed_error_kn) <= max_change_kn:
+        return commanded_speed_kn
+
+    if speed_error_kn > 0.0:
+        return current_speed_kn + max_change_kn
+
+    return max(0.0, current_speed_kn - max_change_kn)
+
+
 def advance_vessel_state_with_course_command(
-    vessel,
+    vessel: Mapping[str, Any],
     commanded_course_deg: float,
     dt_s: float,
     turn_rate_deg_s: float,
-):
+) -> dict[str, Any]:
     """
-    Avanza una embarcación considerando un rumbo ordenado.
+    Avanza una embarcación considerando únicamente un rumbo ordenado.
 
-    A diferencia de advance_vessel_state(), esta función no cambia
-    instantáneamente al rumbo deseado. Primero ajusta gradualmente
-    COG/HDG y luego avanza la posición.
+    Se conserva para compatibilidad con el resto del proyecto. La velocidad
+    permanece igual a la registrada en ``vessel['sog_kn']``.
     """
 
     current_course = float(vessel["cog_deg"])
@@ -100,12 +113,52 @@ def advance_vessel_state_with_course_command(
     updated_vessel["cog_deg"] = new_course
     updated_vessel["heading_deg"] = new_course
 
-    updated_vessel = advance_vessel_state(
+    return advance_vessel_state(
         vessel=updated_vessel,
         dt_s=dt_s,
     )
 
-    return updated_vessel
+
+def advance_vessel_state_with_course_and_speed_command(
+    vessel: Mapping[str, Any],
+    commanded_course_deg: float,
+    commanded_speed_kn: float,
+    dt_s: float,
+    turn_rate_deg_s: float,
+    speed_change_rate_kn_s: float,
+) -> dict[str, Any]:
+    """
+    Avanza una embarcación considerando rumbo y velocidad ordenados.
+
+    El rumbo y la velocidad cambian progresivamente. Esta función no altera
+    la lógica de las maniobras por rumbo existentes; solamente permite que
+    una decisión stand-on ordene una reducción de velocidad gradual.
+    """
+
+    new_course = update_course_towards_command(
+        current_course_deg=float(vessel["cog_deg"]),
+        commanded_course_deg=float(commanded_course_deg),
+        turn_rate_deg_s=float(turn_rate_deg_s),
+        dt_s=float(dt_s),
+    )
+
+    new_speed_kn = update_speed_towards_command(
+        current_speed_kn=float(vessel["sog_kn"]),
+        commanded_speed_kn=float(commanded_speed_kn),
+        speed_change_rate_kn_s=float(speed_change_rate_kn_s),
+        dt_s=float(dt_s),
+    )
+
+    updated_vessel = dict(vessel)
+    updated_vessel["cog_deg"] = new_course
+    updated_vessel["heading_deg"] = new_course
+    updated_vessel["sog_kn"] = new_speed_kn
+
+    return advance_vessel_state(
+        vessel=updated_vessel,
+        dt_s=dt_s,
+    )
+
 
 def advance_position(
     lat: float,
@@ -115,8 +168,7 @@ def advance_position(
     dt_s: float,
 ) -> tuple[float, float]:
     """
-    Calcula la nueva posición de una embarcación después de avanzar
-    durante dt_s segundos con una velocidad SOG y un rumbo COG.
+    Calcula la nueva posición de una embarcación después de avanzar.
 
     Convención náutica:
     - COG = 0°   → Norte
@@ -133,37 +185,22 @@ def advance_position(
 
     delta_lat_deg = math.degrees(dy_north / EARTH_RADIUS_M)
 
+    cos_lat = math.cos(math.radians(lat))
+    if abs(cos_lat) < 1e-12:
+        raise ValueError("La latitud no permite calcular longitud.")
+
     delta_lon_deg = math.degrees(
-        dx_east / (EARTH_RADIUS_M * math.cos(math.radians(lat)))
+        dx_east / (EARTH_RADIUS_M * cos_lat)
     )
 
-    new_lat = lat + delta_lat_deg
-    new_lon = lon + delta_lon_deg
-
-    return new_lat, new_lon
+    return lat + delta_lat_deg, lon + delta_lon_deg
 
 
 def advance_vessel_state(
     vessel: Mapping[str, Any],
     dt_s: float,
 ) -> dict[str, Any]:
-    """
-    Actualiza el estado cinemático de una embarcación.
-
-    Sirve tanto para el USV propio como para cualquier otra embarcación
-    simulada.
-
-    Requiere:
-    - lat
-    - lon
-    - sog_kn
-    - cog_deg
-
-    Mantiene:
-    - heading_deg
-    - mmsi, si existe
-    - otros campos adicionales
-    """
+    """Actualiza el estado cinemático de una embarcación."""
 
     required_fields = ("lat", "lon", "sog_kn", "cog_deg")
 
@@ -182,7 +219,9 @@ def advance_vessel_state(
     updated_vessel = dict(vessel)
     updated_vessel["lat"] = new_lat
     updated_vessel["lon"] = new_lon
-    updated_vessel["timestamp"] = float(updated_vessel.get("timestamp", 0.0)) + dt_s
+    updated_vessel["timestamp"] = (
+        float(updated_vessel.get("timestamp", 0.0)) + dt_s
+    )
 
     return updated_vessel
 
@@ -192,20 +231,18 @@ if __name__ == "__main__":
         "lat": -33.025000,
         "lon": -71.625000,
         "sog_kn": 6.0,
-        "cog_deg": 45.0,
-        "heading_deg": 45.0,
+        "cog_deg": 0.0,
+        "heading_deg": 0.0,
         "timestamp": 0.0,
     }
 
-    for step in range(5):
-        print(
-            f"Reporte USV {step} | "
-            f"t={usv['timestamp']:.1f} s | "
-            f"lat={usv['lat']:.6f} | "
-            f"lon={usv['lon']:.6f}"
-        )
-
-        usv = advance_vessel_state(
+    for _ in range(5):
+        print(usv)
+        usv = advance_vessel_state_with_course_and_speed_command(
             vessel=usv,
+            commanded_course_deg=0.0,
+            commanded_speed_kn=3.0,
             dt_s=5.0,
+            turn_rate_deg_s=1.0,
+            speed_change_rate_kn_s=0.10,
         )

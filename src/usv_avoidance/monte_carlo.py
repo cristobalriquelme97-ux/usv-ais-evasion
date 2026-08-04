@@ -98,6 +98,7 @@ RUN_FIELDS = [
     "margen_seguridad_minimo_m",
     "mejora_distancia_minima_m",
     "tiempo_reaccion_s",
+    "tiempo_total_evasion_s",
     "caida_seleccionada_deg",
     "ruta_recuperada",
     "cantidad_cambios_rumbo_ordenado",
@@ -108,18 +109,14 @@ RUN_FIELDS = [
 
 SUMMARY_FIELDS = [
     "familia",
-    "n",
+    "numero_ejecuciones",
     "semilla_maestra",
     "tasa_seguridad_pct",
-    "tasa_comportamiento_pct",
+    "tasa_cumplimiento_ripa_pct",
     "tasa_exito_pct",
-    "violaciones_baseline_pct",
-    "violaciones_algoritmo_pct",
-    "distancia_minima_mediana_m",
-    "distancia_minima_p05_m",
-    "margen_seguridad_mediana_m",
-    "mejora_mediana_m",
-    "tiempo_reaccion_mediana_s",
+    "tasa_violacion_seguridad_pct",
+    "margen_seguridad_medio_m",
+    "tiempo_evasion_promedio_s",
 ]
 
 
@@ -541,6 +538,9 @@ def run_monte_carlo(
                 "cantidad_replanificaciones": summary.get(
                     "cantidad_replanificaciones"
                 ),
+                "tiempo_total_evasion_s": summary.get(
+                "tiempo_total_evasion_s"
+            ),
             }
             rows.append(row)
 
@@ -589,44 +589,49 @@ def build_summary(
             for row in family_rows
             if row["tiempo_reaccion_s"] is not None
         ]
+        evasion_times = [
+            float(row["tiempo_total_evasion_s"])
+            for row in family_rows
+            if row["tiempo_total_evasion_s"] is not None
+        ]
 
         def percentage(field: str) -> float:
-            return 100.0 * sum(
+            value = 100.0 * sum(
                 bool(row[field]) for row in family_rows
             ) / n
+
+            return round(value, 3)
+
+        safety_rate = percentage("resultado_seguro")
+        ripa_rate = percentage("comportamiento_esperado")
+        success_rate = percentage("escenario_exitoso")
 
         summary_rows.append(
             {
                 "familia": family_key,
-                "n": n,
+                "numero_ejecuciones": n,
                 "semilla_maestra": master_seed,
-                "tasa_seguridad_pct": percentage("resultado_seguro"),
-                "tasa_comportamiento_pct": percentage(
-                    "comportamiento_esperado"
+                "tasa_seguridad_pct": safety_rate,
+                "tasa_cumplimiento_ripa_pct": ripa_rate,
+                "tasa_exito_pct": success_rate,
+                "tasa_violacion_seguridad_pct": round(
+                    100.0 - safety_rate,
+                    3,
                 ),
-                "tasa_exito_pct": percentage("escenario_exitoso"),
-                "violaciones_baseline_pct": percentage(
-                    "baseline_violo_seguridad"
+                "margen_seguridad_medio_m": (
+                    statistics.mean(margins)
+                    if margins
+                    else None
                 ),
-                "violaciones_algoritmo_pct": (
-                    100.0 - percentage("resultado_seguro")
-                ),
-                "distancia_minima_mediana_m": median_or_none(
-                    algorithm_distances
-                ),
-                "distancia_minima_p05_m": percentile(
-                    algorithm_distances,
-                    0.05,
-                ),
-                "margen_seguridad_mediana_m": median_or_none(margins),
-                "mejora_mediana_m": median_or_none(improvements),
-                "tiempo_reaccion_mediana_s": median_or_none(
-                    reaction_times
+                "tiempo_evasion_promedio_s": (
+                    statistics.mean(evasion_times)
+                    if evasion_times
+                    else None
                 ),
             }
         )
 
-    return summary_rows
+        return summary_rows
 
 
 def save_csv(

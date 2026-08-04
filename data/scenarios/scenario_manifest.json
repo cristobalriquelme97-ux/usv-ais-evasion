@@ -5,7 +5,7 @@
         "sog_kn": 6.0,
         "cog_deg": 0.0,
         "heading_deg": 0.0,
-        "turn_rate_deg_s": 1.0
+        "turn_rate_deg_s": 10.0
     },
     "simulation": {
         "duration_s": 200,
@@ -36,7 +36,7 @@
             "offset_east_m": -450.0,
             "offset_north_m": 450.0,
             "target_sog_kn": 6.0,
-            "target_cog_deg": 100.0,
+            "target_cog_deg": 90.0,
             "expected_encounter": "cruce",
             "expected_ownship_role": "stand_on",
             "expected_action": "maintain_course",
@@ -49,14 +49,14 @@
             "description": "Vuelta encontrada con cursos opuestos.",
             "mmsi": 725000003,
             "offset_east_m": 0.0,
-            "offset_north_m": 900.0,
+            "offset_north_m": 1000.0,
             "target_sog_kn": 6.0,
             "target_cog_deg": 180.0,
             "expected_encounter": "vuelta encontrada",
             "expected_ownship_role": "give_way",
             "expected_action": "alter_course_starboard",
             "output_file": "head_on_risk_nmea.txt",
-            "target_lat0": -33.01690610554673,
+            "target_lat0": -33.01600678394081,
             "target_lon0": -71.625
         },
         {
